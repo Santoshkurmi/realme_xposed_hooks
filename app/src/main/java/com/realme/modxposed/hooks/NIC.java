@@ -26,9 +26,9 @@ public class NIC implements IXposedHookLoadPackage {
             @Override
             protected void afterHookedMethod(MethodHookParam param) throws Throwable {
 		    if(param.args[1].equals("android_id") ){
-			if(lpparam.packageName.equals("com.f1soft.nicasiamobilebankinh") param.setResult("bcdd6365d8fa1590");
-			if(lpparam.packageName.equals("com.f1soft.nicasiamobilebankini") param.setResult("bcdd6365d8fa1591");
-			if(lpparam.packageName.equals("com.f1soft.nicasiamobilebankinj") param.setResult("bcdd6365d8fa1592");
+			if(lpparam.packageName.equals("com.f1soft.nicasiamobilebankinh")) param.setResult("bcdd6365d8fa1590");
+			if(lpparam.packageName.equals("com.f1soft.nicasiamobilebankini")) param.setResult("bcdd6365d8fa1591");
+			if(lpparam.packageName.equals("com.f1soft.nicasiamobilebankinj")) param.setResult("bcdd6365d8fa1592");
 		    }//if android_id
             }
         });
