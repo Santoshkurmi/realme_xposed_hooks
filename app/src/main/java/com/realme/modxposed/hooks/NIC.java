@@ -20,5 +20,15 @@ public class NIC implements IXposedHookLoadPackage {
             }
         });
 
+
+        XposedHelpers.findAndHookMethod("android.provider.Settings.Secure", lpparam.classLoader, "getString","android.content.ContentResolver","java.lang.String",new XC_MethodHook() {
+
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+		    if(param.args[1].equals("android_id") )
+                    	param.setResult("bcdd6365d8fa1583");
+            }
+        });
+
     }//init
 }
