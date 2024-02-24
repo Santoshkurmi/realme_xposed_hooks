@@ -20,6 +20,12 @@ jobs:
       - name: Run tests
         run: ./gradlew assemble
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with: 
+          name: Release of apk
+          path: ./build/outputs/apk/release
+
 
 
 
