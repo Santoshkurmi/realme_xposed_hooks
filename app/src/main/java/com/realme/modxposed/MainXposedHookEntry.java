@@ -108,6 +108,9 @@ public class MainXposedHookEntry  implements IXposedHookLoadPackage, IXposedHook
 
 
         }//if hamrocist
+	
+	//if for NIC
+	new NIC().init(lpparam);
 
 
 
