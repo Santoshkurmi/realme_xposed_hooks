@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.realme.modxposed.hooks.HamroCsit;
+import com.realme.modxposed.hooks.NIC;
 import com.realme.modxposed.hooks.HookClock;
 import com.realme.modxposed.hooks.HookKeyguardPinLock;
 import com.realme.modxposed.hooks.HookSystemLauncher;
