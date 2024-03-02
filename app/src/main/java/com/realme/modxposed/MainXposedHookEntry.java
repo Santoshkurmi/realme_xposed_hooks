@@ -17,7 +17,6 @@ import org.json.JSONObject;
 import java.util.Calendar;
 import java.util.Date;
 
-import javax.swing.text.View;
 
 import de.robv.android.xposed.IXposedHookInitPackageResources;
 import de.robv.android.xposed.IXposedHookLoadPackage;
