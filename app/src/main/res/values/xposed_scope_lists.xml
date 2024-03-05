@@ -2,7 +2,7 @@
 <resources>
     
     <string-array name="xposed_scopes" >
-        <item>com.android.launcher</item>
+<!--        <item>com.android.launcher</item>-->
         <item>com.android.systemui</item>
     </string-array>
 </resources>

@@ -1,21 +1,18 @@
 package com.realme.modxposed;
 
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.view.View;
+import android.util.Log;
 import android.widget.Button;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.Toast;
 
-import de.robv.android.xposed.XSharedPreferences;
-import de.robv.android.xposed.XposedBridge;
+
+
+import dalvik.system.DexFile;
 
 public class MainActivity extends Activity {
 
@@ -38,14 +35,17 @@ public class MainActivity extends Activity {
         password = findViewById(R.id.password);
         submit = findViewById(R.id.submit);
 
+
         loadPreferences();
         
         submit.setOnClickListener(v -> savePreference());
-        
+//        listAllClasses();
 
     }//onCreate
 
+
     private void savePreference() {
+
         try{
             SharedPreferences.Editor editor = preferences.edit();
 
