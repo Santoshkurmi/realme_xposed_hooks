@@ -4,12 +4,53 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 public class Search {
-    ArrayList<String> classes = new ArrayList<>(),methods = new ArrayList<>(),excludeClasses = new ArrayList<>(),excludeMethods = new ArrayList<>(),returnType = new ArrayList<>(),params = new ArrayList<>();
+    ArrayList<String> classes = new ArrayList<>(),methods = new ArrayList<>(),excludeClasses = new ArrayList<>(),excludeMethods = new ArrayList<>(),returnTypes = new ArrayList<>(),params = new ArrayList<>();
     String data;
-    boolean hook,printWhileHooking,resultPrint,printClasses,printMethods,after=true,debug,printDebugWhileSearching,enable = true;
+    boolean hook,printAbstract=false,printWhileHooking,resultPrint,printClasses,printMethods,after=true,debug,printDebugWhileSearching,enable = true;
 
     String print;
     HashMap<String,String> results = new HashMap<>();
+    int from = 0,to =-1,paramsMinLen=0,paramsMaxLen=-1,metMinLen=0,metMaxLen=-1;
+
+    public int getMetMinLen() {
+        return metMinLen;
+    }
+
+    public void setMetMinLen(int metMinLen) {
+        this.metMinLen = metMinLen;
+    }
+
+    public int getMetMaxLen() {
+        return metMaxLen;
+    }
+
+    public void setMetMaxLen(int metMaxLen) {
+        this.metMaxLen = metMaxLen;
+    }
+
+    public int getParamsMaxLen() {
+        return paramsMaxLen;
+    }
+
+    public void setParamsMaxLen(int paramsMaxLen) {
+        this.paramsMaxLen = paramsMaxLen;
+    }
+
+    public int getFrom() {
+        return from;
+    }
+
+    public void setFrom(int from) {
+        this.from = from;
+    }
+
+    public int getTo() {
+        return to;
+    }
+
+    public void setTo(int to) {
+        this.to = to;
+    }
 
     public ArrayList<String> getExcludeClasses() {
         return excludeClasses;
@@ -17,6 +58,30 @@ public class Search {
 
     public void setExcludeClasses(ArrayList<String> excludeClasses) {
         this.excludeClasses = excludeClasses;
+    }
+
+    public boolean isPrintAbstract() {
+        return printAbstract;
+    }
+
+    public ArrayList<String> getReturnTypes() {
+        return returnTypes;
+    }
+
+    public void setReturnTypes(ArrayList<String> returnTypes) {
+        this.returnTypes = returnTypes;
+    }
+
+    public int getParamsMinLen() {
+        return paramsMinLen;
+    }
+
+    public void setParamsMinLen(int paramsMinLen) {
+        this.paramsMinLen = paramsMinLen;
+    }
+
+    public void setPrintAbstract(boolean printAbstract) {
+        this.printAbstract = printAbstract;
     }
 
     public ArrayList<String> getExcludeMethods() {
@@ -124,13 +189,6 @@ public class Search {
     }
 
 
-    public ArrayList<String> getReturnType() {
-        return returnType;
-    }
-
-    public void setReturnType(ArrayList<String> returnType) {
-        this.returnType = returnType;
-    }
 
     public ArrayList<String> getParams() {
         return params;

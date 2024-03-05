@@ -24,6 +24,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 public class Compiler {
 
     Helpers helpers = new Helpers();
+    long noOfHookedMethods = 0;
 
     public void handleHookingMethod(String packageName, XC_LoadPackage.LoadPackageParam lpparam) throws ClassNotFoundException, IOException {
         Root config = helpers.parseConfig(packageName);
@@ -31,8 +32,11 @@ public class Compiler {
         Class<?> clazz;
         for(Hooks hook:config.getHooks()){
             if(!hook.isEnable()) continue;
-            clazz = XposedHelpers.findClass(hook.getClassName(),lpparam.classLoader);
-
+            clazz = XposedHelpers.findClassIfExists(hook.getClassName(),lpparam.classLoader);
+            if(clazz == null){
+                XposedBridge.log("ERROR:Unable to find class "+hook.getClassName()+" . Continuing");
+                continue;
+            }
             for(Method method:clazz.getDeclaredMethods()){
                 if(hook.getExcludes().contains(method.getName())) continue;
                 if(  hook.isHookAll() || ( hook.getMethod()!=null && hook.getMethod().equals(method.getName()) ) || hook.getMethods().contains(method.getName()) ){
@@ -41,7 +45,7 @@ public class Compiler {
                         continue;
                     }
 
-                    if(hook.isPrintWhileHooking()) XposedBridge.log("HOOKING:"+method.getName());
+                    if(hook.isPrintWhileHooking()) XposedBridge.log("HOOKING:"+helpers.makeDebugString(method).replace("DEBUG",""));
                     if(hook.isDebug()) hookMethod(hook,method,helpers.makeDebugString(method));
                     else hookMethod(hook,method,null);
                 }//if found teh hooked function
@@ -51,7 +55,7 @@ public class Compiler {
         if(config.getSearch().getClasses().size()>0 && config.getSearch().isEnable())
             new Thread(() -> {
                 try {
-                    XposedBridge.log("Starting the classes searching");
+                    XposedBridge.log("SEARCHING: Starting the classes searching");
                     searchClassMethods(config.getSearch(),lpparam.classLoader);
                 } catch (IOException e) {
                     XposedBridge.log(e.toString());
@@ -81,6 +85,7 @@ public class Compiler {
     }//sanitize
 
     void searchClassMethods(Search search,ClassLoader classLoader) throws IOException {
+        noOfHookedMethods = 0;
         Enumeration<String> entries = getAllClasses();
         ArrayList<String> sanitizedClasses = sanitizeArray(search.getClasses());
         ArrayList<String> sanitizedClassesExcludes = sanitizeArray(search.getExcludeClasses());
@@ -94,12 +99,12 @@ public class Compiler {
                 if(search.isPrintClasses())
                     XposedBridge.log("SEARCH: Match found of class "+currentClass);
                 found++;
+                if(search.getMethods().size()==0) continue;
                 searchAndHookMethods(search,currentClass,classLoader);
             }
 
-
         }//while
-        XposedBridge.log("COMPLETED:Searching completed found "+found+"/"+completed+" classes");
+        XposedBridge.log("COMPLETED:Searching completed found "+found+"/"+completed+" classes and methods: "+noOfHookedMethods);
 
     }//searchClassMethods
 
@@ -112,22 +117,65 @@ public class Compiler {
         return false;
     }//
 
+    boolean matchInArrays(Class<?>[] types,ArrayList<String> params){
+        String typee;
+        for(Class<?> type:types) {
+            for(String param:params){
+                typee = type.getCanonicalName();
+                if(typee !=null)
+                    if (typee.matches(param.replaceAll("\\*",".*")) ) return true;
+            }
+
+        }//for
+        return false;
+    }//
+
     void searchAndHookMethods(Search search,String cls,ClassLoader classLoader){
 //        if(! search.isHook() ) return;
-        Class<?> clazz = XposedHelpers.findClass(cls,classLoader);
-
-        for(Method method:clazz.getDeclaredMethods()){
+        Class<?> clazz = XposedHelpers.findClassIfExists(cls,classLoader);
+        if(clazz == null){
+            XposedBridge.log("ERROR:Unable to find class "+cls+" .Continuing");
+            return;
+        }
+        Method[] methods;
+        try{
+            methods = clazz.getDeclaredMethods();
+        }
+        catch (NoClassDefFoundError error){
+            XposedBridge.log("ERROR: ClassDefNotFound for class "+cls+" . Continuing");
+            return;
+        }
+        for(Method method:methods){
             if(matchInArray(method.getName(),search.getExcludeMethods())) continue;
-            if(   matchInArray(method.getName(),search.getMethods()) || search.getMethods().size()==0 ){
+            if(   matchInArray(method.getName(),search.getMethods())  ){
+
+                if(method.getParameterTypes().length < search.getParamsMinLen()) continue;
+                if(search.getParamsMaxLen()!=-1 && method.getParameterTypes().length > search.getParamsMaxLen() ) continue;
+
+                if(search.getReturnTypes().size()>0)
+                    if (!matchInArray(method.getReturnType().getCanonicalName(),search.getReturnTypes()) ) continue;
+
+                if(search.getParams().size()>0)
+                    if (!matchInArrays(method.getParameterTypes(),search.getParams()) ) continue;
+
+                if(method.getName().length() < search.getMetMinLen()) continue;
+                if(search.getMetMaxLen()!=-1 && method.getName().length() > search.getMetMaxLen() ) continue;
+
+
                 if(Modifier.isAbstract(method.getModifiers())) {
-                    XposedBridge.log("ABSTRACT:Ignoring method "+method.getName());
-                    return;
+                    if(search.isPrintAbstract())
+                        XposedBridge.log("ABSTRACT:Ignoring method "+method.getName());
+                    continue;
                 }
+                noOfHookedMethods++;
+                if(noOfHookedMethods % 500 ==0) XposedBridge.log("Hook:Hooked upto method number "+noOfHookedMethods);
+                if( (search.getTo() !=-1 && noOfHookedMethods >search.getTo()) || noOfHookedMethods <search.getFrom() ) return;
+
                 if(search.isPrintMethods()) XposedBridge.log("METHOD: Matched method "+helpers.makeDebugString(method).replace("DEBUG:","")+" in "+ cls);
 //                if(search.isPrintDebugWhileSearching()) XposedBridge.log(helpers.makeDebugString(method)+" in "+cls);
+                if(!search.isHook()) continue;
                 if(search.isPrintWhileHooking())
                     XposedBridge.log("HOOKING:"+method.getName());
-                if(!search.isHook()) continue;
                 if(search.isDebug() )
                     hookMethodSearch(search,method,helpers.makeDebugString(method),cls);
                 else
@@ -154,10 +202,10 @@ public class Compiler {
                    if(param.args[i] ==null ) continue;
                    String args = param.args[i].toString();
                     if(args.matches(search.getData().replaceAll("\\*",".*"))) XposedBridge.log("MATCHED: Matched in args "+search.getData()+" in method  "+ method.getName()+" in class "+ cls+" with "+args);
-                    if(param.getResult() !=null)
-                     if(param.getResult().toString().matches(search.getData().replaceAll("\\*",".*"))) XposedBridge.log("MATCHED: Matched in return "+search.getData()+" in method "+ method.getName()+" in class "+ cls+" with "+param.getResult());
 
                 }//
+                if(param.getResult() !=null)
+                    if(param.getResult().toString().matches(search.getData().replaceAll("\\*",".*"))) XposedBridge.log("MATCHED: Matched in return "+search.getData()+" in method "+ method.getName()+" in class "+ cls+" with "+param.getResult());
             }//after
         });//
         else
