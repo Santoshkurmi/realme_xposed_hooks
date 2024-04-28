@@ -87,6 +87,16 @@ public class Helpers {
                     XposedBridge.log("RESULT: Setting boolean value from "+param.getResult()+" to "+ result+" in "+method.getName());
                 param.setResult(Boolean.parseBoolean(result));
                 break;
+            case "void":
+                if(isResultPrint)
+                    XposedBridge.log("RESULT: Exiting the function call of method "+method.getName());
+                param.setResult(null);
+                break;
+            case "long":
+                if(isResultPrint)
+                    XposedBridge.log("RESULT: Setting long value from "+param.getResult()+" to "+ result+" in "+method.getName());
+                param.setResult(Long.parseLong(result));
+                break;
             case "int":
                 if(isResultPrint)
                     XposedBridge.log("RESULT: Setting int value from "+param.getResult()+" to "+ result+" in "+method.getName());

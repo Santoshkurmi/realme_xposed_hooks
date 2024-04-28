@@ -248,11 +248,12 @@ public class Compiler {
                 String result = hook.getResults().get(method.getName()) ;
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    if(result !=null) helpers.setResult(method,result,param,hook.isResultPrint());
+                    else if ( hook.getResult() !=null) helpers.setResult(method,hook.getResult(),param,hook.isResultPrint());
+
                     if(debug !=null) XposedBridge.log(debug+"|"+param.getResult());
                     if(hook.getPrint() !=null) XposedBridge.log("PRINT:"+helpers.makePrint(method,param,hook.getPrint()));
                     hookParams(hook,method,param);
-                    if(result !=null) helpers.setResult(method,result,param,hook.isResultPrint());
-                    else if ( hook.getResult() !=null) helpers.setResult(method,hook.getResult(),param,hook.isResultPrint());
 
 
                 }//after

@@ -1,5 +1,6 @@
 package com.realme.modxposed;
 
+import com.realme.modxposed.hooks.GhokSewaMod;
 import com.realme.modxposed.hooks.HamroCsit;
 import com.realme.modxposed.hooks.HookClock;
 import com.realme.modxposed.hooks.HookKeyguardPinLock;
@@ -25,6 +26,9 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
     else if (lpparam.packageName.equals("com.hamrocsit")) {
       new HamroCsit().init(lpparam);
     } // if hamrocist
+    else if(lpparam.packageName.equals("com.engineeringnepal.ghoksewa")){
+      new GhokSewaMod().init(lpparam);
+    }
 
     // if for NIC
     //new NIC().init(lpparam);
