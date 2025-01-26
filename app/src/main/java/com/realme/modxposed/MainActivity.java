@@ -3,16 +3,15 @@ package com.realme.modxposed;
 import androidx.appcompat.widget.SwitchCompat;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
 
 
-
-import dalvik.system.DexFile;
+import com.realme.modxposed.activity.ApplicationList;
 
 public class MainActivity extends Activity {
 
@@ -25,7 +24,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        startActivity(new Intent(this, ApplicationList.class));
+
         setContentView(R.layout.activity_main);
+
+
         preferences = getSharedPreferences("settings",MODE_WORLD_READABLE);
 
         switchCompat = findViewById(R.id.magic_switch);

@@ -32,13 +32,16 @@ public class HookKeyguardPinLock implements IXposedHookLoadPackage {
     boolean isMagic = false;
     int passwordCount,passwordLen,time;
     Context context;
+    int noOfTimesWithoutPasswordLogin = 0;
     XSharedPreferences preferences = new XSharedPreferences("com.realme.modxposed","settings");
     SharedPreferences preferencesSystem;
+    boolean isUnlockingAuto = false;
 
     @Override
     public void init(XC_LoadPackage.LoadPackageParam param) {
 
        loadPreference();
+//       noOfTimesWithoutPasswordLogin = 5;
 
         XposedBridge.log("Hooking SysetemUI");
         if (!isMagic) return;
@@ -46,11 +49,52 @@ public class HookKeyguardPinLock implements IXposedHookLoadPackage {
         Class<?> keyguardPinView = XposedHelpers.findClass(ClassesConstants.KeyguardPinView,param.classLoader);
         Class<?> baseKeyguardSecurity = XposedHelpers.findClass(ClassesConstants.BaseKeyguardSecurityView,param.classLoader);
 
-        XposedHelpers.findAndHookMethod(baseKeyguardSecurity, "getMEntry", new XC_MethodHook() {
+
+//        XposedHelpers.findAndHookMethod("com.android.keyguard.KeyguardUpdateMonitorCallback", param.classLoader, "onKeyguardVisibilityChanged", boolean.class, new XC_MethodHook() {
+//            @Override
+//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+//                super.beforeHookedMethod(param);
+//                XposedBridge.log("Visiblity for keyguard is "+param.args[0]);
+//            }
+//        });
+
+
+        XposedHelpers.findAndHookMethod(baseKeyguardSecurity, "setMEntry",String.class, new XC_MethodHook() {
             @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                String real = (String) param.getResult();
-                if (real.length() != passwordLen || real.equals(realPassword)) return;
+            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                super.beforeHookedMethod(param);
+                String real = (String) param.args[0];
+
+                XposedBridge.log("Started performing lock");
+
+                if(real.isEmpty())return;
+
+//                XposedBridge.log("First entry***: ."+real+".");
+                if (noOfTimesWithoutPasswordLogin>0 && real.equals("0")){
+                    param.args[0] = realPassword;
+                    noOfTimesWithoutPasswordLogin--;
+                    XposedBridge.log("AutoUnlocking the things left:"+noOfTimesWithoutPasswordLogin);
+                    return;
+            }
+
+                if (real.length() != passwordLen) return;
+
+
+                if (real.length()==realPassword.length() ){
+                    String realWithLessOne = real.substring(0,realPassword.length()-2);
+                    if(realPassword.startsWith(realWithLessOne)){
+
+                        noOfTimesWithoutPasswordLogin = Integer.valueOf( real.substring(realPassword.length() - 1) );
+                        param.args[0] = realPassword;
+                        return;
+                    }
+                    else{
+                        noOfTimesWithoutPasswordLogin = 0;
+                    }
+
+                }
+
+
 
                 if (context == null) {
                     context = AndroidAppHelper.currentApplication();
@@ -61,14 +105,23 @@ public class HookKeyguardPinLock implements IXposedHookLoadPackage {
 
 
                 if (System.currentTimeMillis() - previousTimeInMillis > time  && passwords.size()<passwordCount && !passwords.contains(real)) {
-                    passwords.add(real);
-                    savePasswordLists();
+                    if(!real.equals("123456") ){
+                        passwords.add(real);
+                        savePasswordLists();
+                    }
+
                 }
-                if ( passwords.contains(real) ) param.setResult(realPassword);
-
+                if (  passwords.contains(real) ) {
+                    param.args[0] = realPassword;
+//                    param.setResult(realPassword);
             }
-        });//getMenuEntry
 
+        }
+
+
+
+
+        });
 
 
         XposedHelpers.findAndHookMethod(keyguardPinView, "onEntryChanged", String.class,String.class, new XC_MethodHook() {
@@ -76,16 +129,12 @@ public class HookKeyguardPinLock implements IXposedHookLoadPackage {
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                 try{
                     String previous = (String) param.args[0];
-                    String current = (String) param.args[1];
+//                    String current = (String) param.args[1];
+//                    param.args[1] = realPassword;
 
-                    if (password ==null && previous.length()==0 ) {
+                    if (password ==null && previous.isEmpty()) {
                         previousTimeInMillis = System.currentTimeMillis();
                     }
-
-
-//                  XposedBridge.log(param.args[0].toString());
-//                    String pin = (String) XposedHelpers.callMethod(  param.thisObject.getClass().cast()," getMEntry");
-                    XposedBridge.log("***** Pin is "+previous+"  =>"+current+" Time:"+(System.currentTimeMillis() - previousTimeInMillis)+" seconds");
 
                 }
                 catch (Exception e){

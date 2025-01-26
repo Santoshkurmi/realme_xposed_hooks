@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:id="@+id/listbox"
+    android:layout_marginVertical="5dp"
+    android:layout_marginHorizontal="8dp"
+    android:elevation="5dp"
+    android:layout_height="wrap_content">
+    
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+
+        android:padding="10dp"
+
+        >
+
+        <ImageView
+            android:id="@+id/icon"
+            android:contentDescription="This is image"
+            android:padding="5dp"
+            android:layout_marginEnd="20dp"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
+            android:src="@color/common_google_signin_btn_text_light_default"/>
+
+
+        <TextView
+            android:id="@+id/name"
+            android:layout_toEndOf="@+id/icon"
+            android:layout_toStartOf="@+id/enabled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hello World"
+            android:textSize="25sp"/>
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:layout_width="wrap_content"
+            android:id="@+id/enabled"
+            android:layout_marginEnd="10dp"
+            android:layout_alignParentEnd="true"
+            android:layout_height="wrap_content"/>
+    </RelativeLayout>
+
+</androidx.cardview.widget.CardView>

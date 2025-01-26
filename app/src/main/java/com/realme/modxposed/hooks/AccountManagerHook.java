@@ -1,16 +1,8 @@
 package com.realme.modxposed.hooks;
 
-import android.accounts.Account;
-import android.accounts.AccountManager;
-import android.accounts.OnAccountsUpdateListener;
-import android.app.AndroidAppHelper;
-import android.app.Application;
-import android.content.AsyncQueryHandler;
-import android.content.Context;
-import android.os.Handler;
-import android.os.Looper;
-import android.util.Log;
-
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.api.GoogleApi;
 import com.realme.modxposed.IXposedHookLoadPackage;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -23,98 +15,26 @@ public class AccountManagerHook implements IXposedHookLoadPackage {
 
     @Override
     public void init(XC_LoadPackage.LoadPackageParam param) {
-//        AccountManager manager = AccountManager.get(AndroidAppHelper.currentApplication());
 
-        XposedHelpers.findAndHookMethod("android.accounts.AccountManager",param.classLoader, "get", "android.content.Context", new XC_MethodHook() {
+        Class<?> googleSignIn = XposedHelpers.findClass("com.google.android.gms.auth.api.signin.GoogleSignInAccount",param.classLoader);
+
+
+        XposedBridge.hookAllMethods(googleSignIn,"zaa", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                 super.afterHookedMethod(param);
-                XposedBridge.log("Hello tere");
-                AccountManager manager = (AccountManager) param.getResult();
-//                manager.getAccountsByTypeAndFeatures()
-
-//                Account[] accounts = manager.getAccounts();
-//                for (Account account : accounts) {
-//                    XposedBridge.log("Account Name: " + account.name + ", Account Type: " + account.type);
-//                }//for
-
-
-            }//after
+                XposedBridge.log("yes cllaled");
+            }
         });
-
-        XposedHelpers.findAndHookMethod("android.accounts.AccountManager",param.classLoader, "getAccounts", new XC_MethodHook() {
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                super.afterHookedMethod(param);
-                XposedBridge.log("Hello tere2");
-
-                Account[] newAccount = new Account[1];
-                Account[] accounts = (Account[]) param.getResult();
-                newAccount[0] = accounts[1];
-                param.setResult(newAccount);
-//                for (Account account : accounts) {
-//                    XposedBridge.log("Account Name: " + account.name + ", Account Type: " + account.type);
-//                }//for
-
-
-            }//after
-        });
-
-        XposedHelpers.findAndHookMethod("android.accounts.AccountManager",param.classLoader, "getAccountsByType","java.lang.String", new XC_MethodHook() {
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                super.afterHookedMethod(param);
-                XposedBridge.log("Hello tere3 "+param.args[0]);
-                if( ! "com.google".equals(param.args[0])) return;
-
-                Account[] newAccount = new Account[1];
-                Account[] accounts = (Account[]) param.getResult();
-                newAccount[0] = accounts[1];
-                param.setResult(newAccount);
-//                for (Account account : accounts) {
-//                    XposedBridge.log("Account Name: " + account.name + ", Account Type: " + account.type);
-//                }//for
-
-
-            }//after
-        });
-        AccountManager manager2;
-//        manager2.addOnAccountsUpdatedListener();
-//        manager2.getAccountsByTypeForPackage()
-//        manager2.getAccountsByTypeAndFeatures().getResult();
-        Class<?> manager = XposedHelpers.findClass("android.accounts.AccountManager",param.classLoader);
-        XposedBridge.hookAllMethods(manager, "addOnAccountsUpdatedListener", new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                super.afterHookedMethod(param);
-                XposedBridge.log("Hello tere4 "+param.args[0].getClass().toString());
-                Account[] accounts = new Account[0];
-                Object obj = param.args[0];
-                XposedHelpers.callMethod(obj,"onAccountsUpdated", (Object) accounts);
-//                param.args[0] = (OnAccountsUpdateListener) accountss -> {
-//                    XposedBridge.log("LEnght is "+accounts.length);
-//                };
+//        XposedHelpers.findAndHookMethod(googleSignIn, "GoogleSignInAccount", new XC_MethodHook() {
+//            @Override
+//            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+//                super.afterHookedMethod(param);
+////                XposedBridge.ho
 //
-
-
-            }//after
-        });
-
-        XposedBridge.hookAllMethods(manager, "getAccountsByTypeForPackage", new XC_MethodHook() {
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                super.afterHookedMethod(param);
-                XposedBridge.log("Hello tere45 "+param.args[0]+","+param.args[1]);
-                Account[] accounts = (Account[]) param.getResult();
-                XposedBridge.log(accounts.length+" ");
-//                param.args[0] = (OnAccountsUpdateListener) accounts -> {
-//                    XposedBridge.log("LEnght is "+accounts.length);
-//                };
-//
-
-
-            }//after
-        });
+//                XposedBridge.log("Called this function");
+//            }
+//        });
 
 
 //

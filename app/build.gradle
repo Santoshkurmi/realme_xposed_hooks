@@ -40,6 +40,8 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.8.9'
 
     implementation 'com.moandjiezana.toml:toml4j:0.7.2'
+    implementation 'androidx.activity:activity:1.8.0'
+//    implementation 'org.eclipse.jdt:ecj:3.40.0'
     compileOnly files('libs/api-82.jar')
 
 
