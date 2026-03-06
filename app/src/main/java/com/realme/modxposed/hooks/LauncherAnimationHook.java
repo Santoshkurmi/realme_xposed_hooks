@@ -32,84 +32,64 @@ public class LauncherAnimationHook implements IXposedHookLoadPackage {
 
     @Override
     public void init(XC_LoadPackage.LoadPackageParam lpparam) {
-        String className = "com.android.common.util.AppFeatureUtils";
-        XposedBridge.log("WOrking or not");
+// Target: com.android.launcher (check with: adb shell pm list packages | grep launcher)
+        XposedBridge.log("HOOKing launcher");
+        // Target: com.android.launcher package
+        final int EXTRA_HEIGHT = 200;
 
-//        XposedHelpers.findAndHookMethod(className, lpparam.classLoader, "isLightOSAnimation", new XC_MethodHook() {
-//            @Override
-//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-//                super.beforeHookedMethod(param);
-//                param.setResult(false);
-////                XposedBridge.log("Setting the light animation to false");
-//            }
-//        });
-        XposedHelpers.findAndHookMethod("com.android.common.util.AppFeatureUtils$isHomeGestureLightAnimation$2", lpparam.classLoader, "invoke", new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                super.beforeHookedMethod(param);
-                param.setResult(false);
-                XposedBridge.log("Hooked isHomeGestureLightAnimation");
-            }
-        });
+// THE hook that actually matters - increase the gesture area size returned by NavigationController
+        XposedHelpers.findAndHookMethod(
+                "com.oplus.quickstep.navigation.NavigationController",
+                lpparam.classLoader,
+                "getGestureAreaSizeInMistouch",
+                android.content.res.Resources.class,
+                XposedHelpers.findClass("com.android.quickstep.OrientationRectF", lpparam.classLoader),
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                        float original = (float) param.getResult();
+                        param.setResult(original + EXTRA_HEIGHT);
+                        XposedBridge.log("getGestureAreaSizeInMistouch: " + original + " -> " + (original + EXTRA_HEIGHT));
+                    }
+                }
+        );
 
-//        ContentResolver resolver;
-//        resolver.query(new Uri(),"","hello",new String[]{""},"");
 
-//        XposedHelpers.findAndHookMethod("android.content.ContentResolver", lpparam.classLoader, "query",Uri.class,String[].class, String.class,String[].class,String.class,new XC_MethodHook() {
-//            @Override
-//            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-////                super.afterHookedMethod(param);
-////                param.setResult(false);
-////                String[] abc = new String[]{"hello"};
-////                Arrays.toString(abc);
-//                if(isFetching)return;
-//                ContentResolver resolver = (ContentResolver) param.thisObject;
-//                Cursor cursor = (Cursor) param.getResult();
-////                XposedBridge.log(cursor.getClass().toString());
-//
-////                XposedBridge.hookMethod(cursor.getCount,)
-////
-//                if(cursor!=null){
-//                    if(cursor.getCount()>0){
-////                        cursorSaved = ;
-//                        uri =(Uri) param.args[0];
-//                        feature = (String) param.args[2];
-//                        paramsString = (String[]) param.args[3];
-////                        cursorSaved = resolver.query((Uri)param.args[0],(String[])param.args[1],(String)param.args[2],(String[])param.args[3],(String)param.args[4]);
-//                        XposedBridge.log(Arrays.toString((String[])param.args[3])+" = True" );
-//                    }
-//                    else{
-//                        XposedBridge.log(Arrays.toString((String[])param.args[3])+"= False" );
-////                        param.setResult(cursorSaved);
-//                        if(uri==null) return;
-//                        isFetching = true;
-//                        cursorSaved = resolver.query(uri,null,feature,paramsString,null);
-//                        isFetching = false;
-//                        if(cursorSaved !=null) param.setResult(cursorSaved);
-//
-//
-//                    }
-//                }
-//            }
-//        });
+        XposedHelpers.findAndHookMethod(
+                "com.oplus.quickstep.utils.DefaultAnimationSeqHelper", lpparam.classLoader,
+                "canInterceptGesture",
+                new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        param.setResult(true); // Always allow gesture interception
+                    }
+                }
+        );
 
-//        XposedHelpers.findAndHookMethod("android.content.ContentResolver$CursorWrapperInner", lpparam.classLoader, "getCount", new XC_MethodHook() {
-//            @Override
-//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-//                super.beforeHookedMethod(param);
-//                param.setResult(1);
-//                XposedBridge.log("Done");
-//            }
-//        });
 
-//        Class<?> appFeatures = XposedHelpers.findClassIfExists("com.oplus.coreapp.appfeature.AppFeatureProviderUtils",lpparam.classLoader);
-//        XposedBridge.hookAllMethods(appFeatures, "isFeatureSupport", new XC_MethodHook() {
-//            @Override
-//            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-//                super.afterHookedMethod(param);
-//                XposedBridge.log("Result of "+param.args[1]+"=>"+param.getResult());
-//            }
-//        });
+        XposedHelpers.findAndHookMethod(
+                "com.oplus.quickstep.utils.DefaultAnimationController", lpparam.classLoader,
+                "isOpeningAnim",
+                new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        param.setResult(false); // Pretend no opening animation
+                    }
+                }
+        );
+
+
+        XposedHelpers.findAndHookMethod(
+                "com.android.systemui.shared.system.AnimSeqTimeStamp", lpparam.classLoader,
+                "getTimeGapToLastStartAppTime",
+                new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        param.setResult(999L); // Always above 300ms threshold
+                    }
+                }
+        );
+
 
 
     }//init

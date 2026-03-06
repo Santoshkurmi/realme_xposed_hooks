@@ -5,6 +5,7 @@ import android.view.KeyEvent;
 import com.realme.modxposed.hooks.AccountManagerHook;
 import com.realme.modxposed.hooks.AccountManagerHook5;
 import com.realme.modxposed.hooks.DisablePowerButton;
+import com.realme.modxposed.hooks.GestureNavigationView;
 import com.realme.modxposed.hooks.GhokSewaMod;
 import com.realme.modxposed.hooks.HamroCsit;
 import com.realme.modxposed.hooks.HookClock;
@@ -32,9 +33,14 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
   public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
       switch (lpparam.packageName) {
           case ClassesConstants.SystemUi:
-              new HookKeyguardPinLock().init(lpparam);
-              new HookClock().init(lpparam);
+              new GestureNavigationView().init(lpparam);
+//              new HookKeyguardPinLock().init(lpparam);
+//              new HookClock().init(lpparam);
 
+              break;
+
+          case "com.android.launcher":
+              new LauncherAnimationHook().init(lpparam);
               break;
           case "com.hamrocsit":
               new HamroCsit().init(lpparam);
