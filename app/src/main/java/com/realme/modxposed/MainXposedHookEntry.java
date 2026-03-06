@@ -35,7 +35,7 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
           case ClassesConstants.SystemUi:
               new GestureNavigationView().init(lpparam);
 //              new HookKeyguardPinLock().init(lpparam);
-//              new HookClock().init(lpparam);
+              new HookClock().init(lpparam);
 
               break;
 
