@@ -13,6 +13,7 @@ import com.realme.modxposed.hooks.HookGame;
 import com.realme.modxposed.hooks.HookKeyguardPinLock;
 import com.realme.modxposed.hooks.HookSystemLauncher;
 import com.realme.modxposed.hooks.DynamicHooking;
+import com.realme.modxposed.hooks.HookWallpaper;
 import com.realme.modxposed.hooks.LauncherAnimationHook;
 import com.realme.modxposed.hooks.Siddha;
 import com.realme.modxposed.hooks.VideoDownloader;
@@ -37,6 +38,10 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
 //              new HookKeyguardPinLock().init(lpparam);
               new HookClock().init(lpparam);
 
+              break;
+
+          case "com.oplus.wallpapers":
+              new HookWallpaper().init(lpparam);
               break;
 
           case "com.android.launcher":

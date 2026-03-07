@@ -92,7 +92,23 @@ public class LauncherAnimationHook implements IXposedHookLoadPackage {
 
 
 
+
+
     }//init
+
+    private static void hookLiveTileMode(XC_LoadPackage.LoadPackageParam lpparam, String className) {
+        try {
+            Class<?> clazz = XposedHelpers.findClass(className, lpparam.classLoader);
+            XposedHelpers.findAndHookMethod(clazz, "isInLiveTileMode", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    param.setResult(false);
+                }
+            });
+        } catch (Throwable t) {
+            // Ignore if class not found
+        }
+    }
 
 
 }//class
