@@ -15,6 +15,7 @@ import com.realme.modxposed.hooks.HookSystemLauncher;
 import com.realme.modxposed.hooks.DynamicHooking;
 import com.realme.modxposed.hooks.HookWallpaper;
 import com.realme.modxposed.hooks.LauncherAnimationHook;
+import com.realme.modxposed.hooks.NIC;
 import com.realme.modxposed.hooks.Siddha;
 import com.realme.modxposed.hooks.VideoDownloader;
 
@@ -40,9 +41,9 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
 
               break;
 
-          case "com.oplus.wallpapers":
-              new HookWallpaper().init(lpparam);
-              break;
+//          case "com.oplus.wallpapers":
+//              new HookWallpaper().init(lpparam);
+//              break;
 
           case "com.android.launcher":
               new LauncherAnimationHook().init(lpparam);
@@ -75,7 +76,7 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
 //    }
 
     // if for NIC
-    //new NIC().init(lpparam);
+//    new NIC().init(lpparam);
 //    if(lpparam.packageName.equals("com.f1soft.esewa"))
 //    else new DynamicHooking().init(lpparam);
 
