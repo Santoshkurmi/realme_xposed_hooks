@@ -26,9 +26,12 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static final String TAG = "RealBatteryDecimal";
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
-    private static final long POLL_INTERVAL_MS = 5000; // 5 Seconds background poll
+    private static final long POLL_INTERVAL_MS = 5000;
 
-    // Global Volatile Cached Decimal String
+    // Winning OxygenOS SystemUI Classes (Pruned all failed ones)
+    private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
+    private static final String HORIZONTAL_DRAWABLE_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable";
+
     private static volatile String cachedDecimalPercentage = null;
 
     private Handler backgroundHandler;
@@ -43,93 +46,67 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     public void init(XC_LoadPackage.LoadPackageParam lpparam) {
         logBoth(">>> INIT STARTED for package: " + lpparam.packageName);
 
-        // 1. Start Background Polling Thread (Reads sysfs every 5s into cachedDecimalPercentage)
+        // 1. Start Background Polling Thread
         try {
             HandlerThread thread = new HandlerThread("BatteryDecimalThread");
             thread.start();
             backgroundHandler = new Handler(thread.getLooper());
-            logBoth("Background HandlerThread started successfully.");
-            
+            logBoth("[THREAD_STARTED] Background HandlerThread started successfully.");
             startBackgroundPolling();
         } catch (Throwable t) {
-            logBoth("ERROR starting HandlerThread: " + t.getMessage());
+            logBoth("[THREAD_ERROR] ERROR starting HandlerThread: " + t.getMessage());
         }
 
-        // Target classes for OxygenOS / ColorOS 14/15/16 SystemUI
-        String[] targetClasses = {
-            "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView",
-            "com.oplus.systemui.statusbar.pipeline.battery.StatBatteryMeterViewController",
-            "com.oplus.systemui.statusbar.pipeline.battery.ui.view.BaseBatteryMeterView",
-            "com.oplusos.systemui.statusbar.phone.OplusBatteryMeterView",
-            "com.android.systemui.statusbar.phone.BatteryMeterView"
-        };
+        // Hook Winning Target 1: StatBatteryMeterView
+        try {
+            Class<?> clazz = XposedHelpers.findClass(STAT_BATTERY_VIEW_CLASS, lpparam.classLoader);
+            logBoth("[CLASS_FOUND] " + STAT_BATTERY_VIEW_CLASS);
 
-        for (String className : targetClasses) {
-            try {
-                Class<?> clazz = XposedHelpers.findClass(className, lpparam.classLoader);
-                logBoth("FOUND & HOOKING CLASS: " + className);
-
-                // Hook onFinishInflate
-                try {
-                    XposedHelpers.findAndHookMethod(clazz, "onFinishInflate", new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                            View view = (View) param.thisObject;
-                            logBoth("EVENT: onFinishInflate in " + param.thisObject.getClass().getName());
-                            registerAndImmediatelyUpdate(view);
-                        }
-                    });
-                    logBoth("Hooked onFinishInflate in " + className);
-                } catch (Throwable t) {
-                    logBoth("Could not hook onFinishInflate in " + className + ": " + t.getMessage());
+            // Hook onFinishInflate
+            XposedHelpers.findAndHookMethod(clazz, "onFinishInflate", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    logBoth("[HOOK_EXEC: StatBatteryMeterView#onFinishInflate]");
+                    View view = (View) param.thisObject;
+                    registerAndImmediatelyUpdate(view, "StatBatteryMeterView#onFinishInflate");
                 }
+            });
+            logBoth("[HOOK_REGISTERED: StatBatteryMeterView#onFinishInflate]");
 
-                // Hook onAttachedToWindow
-                try {
-                    XposedHelpers.findAndHookMethod(clazz, "onAttachedToWindow", new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                            View view = (View) param.thisObject;
-                            logBoth("EVENT: onAttachedToWindow in " + param.thisObject.getClass().getName());
-                            registerAndImmediatelyUpdate(view);
-                        }
-                    });
-                    logBoth("Hooked onAttachedToWindow in " + className);
-                } catch (Throwable t) {
-                    logBoth("Could not hook onAttachedToWindow in " + className + ": " + t.getMessage());
+            // Hook onAttachedToWindow
+            XposedHelpers.findAndHookMethod(clazz, "onAttachedToWindow", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    logBoth("[HOOK_EXEC: StatBatteryMeterView#onAttachedToWindow]");
+                    View view = (View) param.thisObject;
+                    registerAndImmediatelyUpdate(view, "StatBatteryMeterView#onAttachedToWindow");
                 }
+            });
+            logBoth("[HOOK_REGISTERED: StatBatteryMeterView#onAttachedToWindow]");
 
-            } catch (Throwable t) {
-                logBoth("CLASS NOT FOUND: " + className + " (" + t.getMessage() + ")");
-            }
+        } catch (Throwable t) {
+            logBoth("[CLASS_ERROR: StatBatteryMeterView] -> " + t.getMessage());
         }
 
-        // Hook Drawables (Horizontal & Vertical Content Drawables)
-        String[] drawableClasses = {
-            "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable",
-            "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.VerticalBatteryContentDrawable"
-        };
+        // Hook Winning Target 2: HorizontalBatteryContentDrawable
+        try {
+            Class<?> clazz = XposedHelpers.findClass(HORIZONTAL_DRAWABLE_CLASS, lpparam.classLoader);
+            logBoth("[DRAWABLE_FOUND] " + HORIZONTAL_DRAWABLE_CLASS);
 
-        for (String drawClass : drawableClasses) {
-            try {
-                Class<?> clazz = XposedHelpers.findClass(drawClass, lpparam.classLoader);
-                logBoth("FOUND DRAWABLE CLASS: " + drawClass);
-
-                XposedHelpers.findAndHookMethod(clazz, "draw", android.graphics.Canvas.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                        String currentDecimal = cachedDecimalPercentage;
-                        if (currentDecimal != null) {
-                            try {
-                                XposedHelpers.setObjectField(param.thisObject, "levelString", currentDecimal);
-                            } catch (Throwable ignored) {}
-                        }
+            XposedHelpers.findAndHookMethod(clazz, "draw", android.graphics.Canvas.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    String currentDecimal = cachedDecimalPercentage;
+                    if (currentDecimal != null) {
+                        try {
+                            XposedHelpers.setObjectField(param.thisObject, "levelString", currentDecimal);
+                        } catch (Throwable ignored) {}
                     }
-                });
-                logBoth("Hooked draw in " + drawClass);
-            } catch (Throwable t) {
-                logBoth("DRAWABLE NOT FOUND: " + drawClass + " (" + t.getMessage() + ")");
-            }
+                }
+            });
+            logBoth("[HOOK_REGISTERED: HorizontalBatteryContentDrawable#draw]");
+        } catch (Throwable t) {
+            logBoth("[DRAWABLE_ERROR: HorizontalBatteryContentDrawable] -> " + t.getMessage());
         }
 
         logBoth("<<< INIT COMPLETED for package: " + lpparam.packageName);
@@ -139,72 +116,76 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         backgroundHandler.post(new Runnable() {
             @Override
             public void run() {
-                // Read hardware file on background thread
                 String newDecimal = readGaugeInfoFromSysfs();
                 if (newDecimal != null) {
                     cachedDecimalPercentage = newDecimal;
-                    logBoth("POLL: Updated cachedDecimalPercentage to: " + newDecimal);
-                    // Broadcast update to all registered views
+                    logBoth("[POLL_SUCCESS] Updated cachedDecimalPercentage = " + newDecimal + " (Registered Active Views: " + activeTextViewSet.size() + ")");
                     updateAllRegisteredViews(newDecimal);
                 }
                 backgroundHandler.postDelayed(this, POLL_INTERVAL_MS);
             }
         });
-        logBoth("Background Polling Loop Started (Every 5 seconds).");
+        logBoth("[POLLING_STARTED] Background Polling Loop Started (Interval: 5000ms).");
     }
 
-    private void registerAndImmediatelyUpdate(View root) {
+    private void registerAndImmediatelyUpdate(View root, String sourceHook) {
         if (root == null) return;
 
         if (root instanceof TextView) {
             TextView tv = (TextView) root;
+            int hash = System.identityHashCode(tv);
             if (!activeTextViewSet.contains(tv)) {
                 activeTextViewSet.add(tv);
-                logBoth("REGISTERED TextView: " + tv.getClass().getName() + " (Total Views: " + activeTextViewSet.size() + ")");
+                logBoth("[VIEW_REGISTERED] TextView Hash: " + hash + " | TriggeredBy: " + sourceHook + " | Total Active: " + activeTextViewSet.size());
             }
-            // Immediately apply cached value
-            applyTextToView(tv, cachedDecimalPercentage);
+            
+            // Direct Immediate Text Apply on UI thread (No post delay)
+            String textToApply = cachedDecimalPercentage;
+            if (textToApply != null) {
+                CharSequence before = tv.getText();
+                if (before == null || !before.toString().equals(textToApply)) {
+                    tv.setText(textToApply);
+                    logBoth("[INSTANT_TEXT_APPLIED: " + sourceHook + "] Hash: " + hash + " | Before: '" + before + "' -> After: '" + textToApply + "'");
+                }
+            }
         } else if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                registerAndImmediatelyUpdate(group.getChildAt(i));
+            int count = group.getChildCount();
+            for (int i = 0; i < count; i++) {
+                registerAndImmediatelyUpdate(group.getChildAt(i), sourceHook);
             }
         }
     }
 
     private void updateAllRegisteredViews(final String newDecimal) {
         if (activeTextViewSet.isEmpty()) {
-            logBoth("No active TextViews registered yet.");
+            logBoth("[BATCH_UPDATE_SKIP] No active TextViews registered.");
             return;
         }
 
         synchronized (activeTextViewSet) {
             Iterator<TextView> iterator = activeTextViewSet.iterator();
             while (iterator.hasNext()) {
-                TextView tv = iterator.next();
+                final TextView tv = iterator.next();
                 if (!tv.isAttachedToWindow()) {
-                    logBoth("Cleaning up detached view: " + tv.getClass().getName());
+                    logBoth("[VIEW_CLEANUP] Removing unattached View Hash: " + System.identityHashCode(tv));
                     iterator.remove();
                     continue;
                 }
-                applyTextToView(tv, newDecimal);
+                
+                final int hash = System.identityHashCode(tv);
+                tv.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        CharSequence before = tv.getText();
+                        if (before == null || !before.toString().equals(newDecimal)) {
+                            tv.setText(newDecimal);
+                            logBoth("[BATCH_TEXT_APPLIED] Hash: " + hash + " | Before: '" + before + "' -> After: '" + newDecimal + "'");
+                        }
+                    }
+                });
             }
         }
-    }
-
-    private void applyTextToView(final TextView tv, final String textToApply) {
-        if (tv == null || textToApply == null) return;
-
-        tv.post(new Runnable() {
-            @Override
-            public void run() {
-                CharSequence before = tv.getText();
-                if (before == null || !before.toString().equals(textToApply)) {
-                    tv.setText(textToApply);
-                    logBoth("APPLIED TEXT: '" + before + "' -> '" + textToApply + "' on View: " + tv.getClass().getName());
-                }
-            }
-        });
     }
 
     private String readGaugeInfoFromSysfs() {
@@ -229,7 +210,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             double decimalSoc = (rem * 100.0) / full;
             return String.format(Locale.US, "%.2f%%", decimalSoc);
         } catch (Exception e) {
-            logBoth("EXCEPTION reading sysfs: " + e.getMessage());
             return null;
         }
     }
