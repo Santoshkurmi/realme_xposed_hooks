@@ -2,7 +2,6 @@ package com.realme.modxposed.hooks;
 
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -24,11 +23,10 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
-    private static final String TAG = "RealBatteryDecimal";
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
     private static final long POLL_INTERVAL_MS = 10000; // 10 Seconds background poll
 
-    // Winning OxygenOS SystemUI Classes
+    // Target Classes
     private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
     private static final String HORIZONTAL_DRAWABLE_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable";
 
@@ -47,7 +45,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             startBackgroundPolling();
         } catch (Throwable ignored) {}
 
-        // Hook Winning Target 1: StatBatteryMeterView
+        // Target 1: StatBatteryMeterView
         try {
             Class<?> clazz = XposedHelpers.findClass(STAT_BATTERY_VIEW_CLASS, lpparam.classLoader);
 
@@ -56,7 +54,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     View view = (View) param.thisObject;
-                    registerAndImmediatelyUpdate(view, "StatBatteryMeterView#onFinishInflate");
+                    registerAndImmediatelyUpdate(view);
                 }
             });
 
@@ -65,13 +63,23 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     View view = (View) param.thisObject;
-                    registerAndImmediatelyUpdate(view, "StatBatteryMeterView#onAttachedToWindow");
+                    registerAndImmediatelyUpdate(view);
+                }
+            });
+
+            // Hook dispatchDraw: Instantly intercepts charger plug/unplug integer resets!
+            XposedHelpers.findAndHookMethod(clazz, "dispatchDraw", android.graphics.Canvas.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    View view = (View) param.thisObject;
+                    XposedBridge.log("Dispatch");
+                    updateBatteryTextViewsInstant(view);
                 }
             });
 
         } catch (Throwable ignored) {}
 
-        // Hook Winning Target 2: HorizontalBatteryContentDrawable
+        // Target 2: HorizontalBatteryContentDrawable
         try {
             Class<?> clazz = XposedHelpers.findClass(HORIZONTAL_DRAWABLE_CLASS, lpparam.classLoader);
 
@@ -103,7 +111,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         });
     }
 
-    private void registerAndImmediatelyUpdate(View root, String sourceHook) {
+    private void registerAndImmediatelyUpdate(View root) {
         if (root == null) return;
 
         if (root instanceof TextView) {
@@ -111,20 +119,27 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             if (!activeTextViewSet.contains(tv)) {
                 activeTextViewSet.add(tv);
             }
-            
-            // Direct Immediate Text Apply on UI thread
-            String textToApply = cachedDecimalPercentage;
-            if (textToApply != null) {
-                CharSequence before = tv.getText();
-                if (before == null || !before.toString().equals(textToApply)) {
-                    tv.setText(textToApply);
-                }
-            }
+            applyTextToView(tv, cachedDecimalPercentage);
         } else if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
             int count = group.getChildCount();
             for (int i = 0; i < count; i++) {
-                registerAndImmediatelyUpdate(group.getChildAt(i), sourceHook);
+                registerAndImmediatelyUpdate(group.getChildAt(i));
+            }
+        }
+    }
+
+    private void updateBatteryTextViewsInstant(View root) {
+        if (root == null || cachedDecimalPercentage == null) return;
+
+        if (root instanceof TextView) {
+            TextView tv = (TextView) root;
+            applyTextToView(tv, cachedDecimalPercentage);
+        } else if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            int count = group.getChildCount();
+            for (int i = 0; i < count; i++) {
+                updateBatteryTextViewsInstant(group.getChildAt(i));
             }
         }
     }
@@ -144,13 +159,18 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 tv.post(new Runnable() {
                     @Override
                     public void run() {
-                        CharSequence before = tv.getText();
-                        if (before == null || !before.toString().equals(newDecimal)) {
-                            tv.setText(newDecimal);
-                        }
+                        applyTextToView(tv, newDecimal);
                     }
                 });
             }
+        }
+    }
+
+    private void applyTextToView(TextView tv, String targetText) {
+        if (tv == null || targetText == null) return;
+        CharSequence before = tv.getText();
+        if (before == null || !before.toString().equals(targetText)) {
+            tv.setText(targetText);
         }
     }
 
