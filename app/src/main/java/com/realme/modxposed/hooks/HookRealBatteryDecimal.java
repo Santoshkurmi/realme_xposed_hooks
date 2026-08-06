@@ -11,12 +11,11 @@ import com.realme.modxposed.IXposedHookLoadPackage;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
-import java.lang.ref.WeakReference;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
-import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -27,13 +26,13 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static final String TAG = "RealBatteryDecimal";
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
-    private static final long REFRESH_INTERVAL_MS = 5000;
+    private static final long POLL_INTERVAL_MS = 5000; // 5 Seconds background poll
+
+    // Global Volatile Cached Decimal String
+    private static volatile String cachedDecimalPercentage = null;
 
     private Handler backgroundHandler;
-    private final Set<WeakReference<TextView>> registeredTextViews = Collections.newSetFromMap(new WeakHashMap<WeakReference<TextView>, Boolean>());
-    private String lastAppliedDecimal = "";
-    private boolean isTimerRunning = false;
-    private long tickCounter = 0;
+    private final Set<TextView> activeTextViewSet = Collections.synchronizedSet(new HashSet<TextView>());
 
     private void logBoth(String msg) {
         XposedBridge.log("[" + TAG + "] " + msg);
@@ -44,15 +43,19 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     public void init(XC_LoadPackage.LoadPackageParam lpparam) {
         logBoth(">>> INIT STARTED for package: " + lpparam.packageName);
 
+        // 1. Start Background Polling Thread (Reads sysfs every 5s into cachedDecimalPercentage)
         try {
             HandlerThread thread = new HandlerThread("BatteryDecimalThread");
             thread.start();
             backgroundHandler = new Handler(thread.getLooper());
             logBoth("Background HandlerThread started successfully.");
+            
+            startBackgroundPolling();
         } catch (Throwable t) {
             logBoth("ERROR starting HandlerThread: " + t.getMessage());
         }
 
+        // Target classes for OxygenOS / ColorOS 14/15/16 SystemUI
         String[] targetClasses = {
             "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView",
             "com.oplus.systemui.statusbar.pipeline.battery.StatBatteryMeterViewController",
@@ -62,18 +65,18 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         };
 
         for (String className : targetClasses) {
-            logBoth("Searching class in ClassLoader: " + className);
             try {
                 Class<?> clazz = XposedHelpers.findClass(className, lpparam.classLoader);
                 logBoth("FOUND & HOOKING CLASS: " + className);
 
+                // Hook onFinishInflate
                 try {
                     XposedHelpers.findAndHookMethod(clazz, "onFinishInflate", new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                             View view = (View) param.thisObject;
-                            logBoth("EVENT: onFinishInflate triggered in class " + param.thisObject.getClass().getName() + " (ViewID: " + view.getId() + ")");
-                            registerViewsFromRoot(view, param.thisObject.getClass().getName());
+                            logBoth("EVENT: onFinishInflate in " + param.thisObject.getClass().getName());
+                            registerAndImmediatelyUpdate(view);
                         }
                     });
                     logBoth("Hooked onFinishInflate in " + className);
@@ -81,13 +84,14 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                     logBoth("Could not hook onFinishInflate in " + className + ": " + t.getMessage());
                 }
 
+                // Hook onAttachedToWindow
                 try {
                     XposedHelpers.findAndHookMethod(clazz, "onAttachedToWindow", new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                             View view = (View) param.thisObject;
-                            logBoth("EVENT: onAttachedToWindow triggered in class " + param.thisObject.getClass().getName() + " (ViewID: " + view.getId() + ")");
-                            registerViewsFromRoot(view, param.thisObject.getClass().getName());
+                            logBoth("EVENT: onAttachedToWindow in " + param.thisObject.getClass().getName());
+                            registerAndImmediatelyUpdate(view);
                         }
                     });
                     logBoth("Hooked onAttachedToWindow in " + className);
@@ -100,129 +104,117 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             }
         }
 
-        startMasterTimer();
+        // Hook Drawables (Horizontal & Vertical Content Drawables)
+        String[] drawableClasses = {
+            "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable",
+            "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.VerticalBatteryContentDrawable"
+        };
+
+        for (String drawClass : drawableClasses) {
+            try {
+                Class<?> clazz = XposedHelpers.findClass(drawClass, lpparam.classLoader);
+                logBoth("FOUND DRAWABLE CLASS: " + drawClass);
+
+                XposedHelpers.findAndHookMethod(clazz, "draw", android.graphics.Canvas.class, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        String currentDecimal = cachedDecimalPercentage;
+                        if (currentDecimal != null) {
+                            try {
+                                XposedHelpers.setObjectField(param.thisObject, "levelString", currentDecimal);
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                });
+                logBoth("Hooked draw in " + drawClass);
+            } catch (Throwable t) {
+                logBoth("DRAWABLE NOT FOUND: " + drawClass + " (" + t.getMessage() + ")");
+            }
+        }
+
         logBoth("<<< INIT COMPLETED for package: " + lpparam.packageName);
     }
 
-    private synchronized void startMasterTimer() {
-        if (isTimerRunning) {
-            logBoth("Master Timer is already running. Skipping duplicate start.");
-            return;
-        }
-        isTimerRunning = true;
-
+    private void startBackgroundPolling() {
         backgroundHandler.post(new Runnable() {
             @Override
             public void run() {
-                tickCounter++;
-                logBoth("--- MASTER TIMER TICK #" + tickCounter + " (Active Registered Views: " + registeredTextViews.size() + ") ---");
-                updateAllRegisteredViews();
-                backgroundHandler.postDelayed(this, REFRESH_INTERVAL_MS);
+                // Read hardware file on background thread
+                String newDecimal = readGaugeInfoFromSysfs();
+                if (newDecimal != null) {
+                    cachedDecimalPercentage = newDecimal;
+                    logBoth("POLL: Updated cachedDecimalPercentage to: " + newDecimal);
+                    // Broadcast update to all registered views
+                    updateAllRegisteredViews(newDecimal);
+                }
+                backgroundHandler.postDelayed(this, POLL_INTERVAL_MS);
             }
         });
-        logBoth("Single Master Background Refresh Timer Loop Successfully Started.");
+        logBoth("Background Polling Loop Started (Every 5 seconds).");
     }
 
-    private void registerViewsFromRoot(View root, String sourceClassName) {
-        if (root == null) {
-            logBoth("registerViewsFromRoot called with NULL root from " + sourceClassName);
-            return;
-        }
-
-        logBoth("Traversing view hierarchy from " + sourceClassName + ": " + root.getClass().getName() + " (Hash: " + System.identityHashCode(root) + ")");
+    private void registerAndImmediatelyUpdate(View root) {
+        if (root == null) return;
 
         if (root instanceof TextView) {
             TextView tv = (TextView) root;
-            addTextViewIfNew(tv, sourceClassName);
+            if (!activeTextViewSet.contains(tv)) {
+                activeTextViewSet.add(tv);
+                logBoth("REGISTERED TextView: " + tv.getClass().getName() + " (Total Views: " + activeTextViewSet.size() + ")");
+            }
+            // Immediately apply cached value
+            applyTextToView(tv, cachedDecimalPercentage);
         } else if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
-            int count = group.getChildCount();
-            logBoth("ViewGroup " + root.getClass().getName() + " has " + count + " child views.");
-            for (int i = 0; i < count; i++) {
-                registerViewsFromRoot(group.getChildAt(i), sourceClassName);
+            for (int i = 0; i < group.getChildCount(); i++) {
+                registerAndImmediatelyUpdate(group.getChildAt(i));
             }
         }
     }
 
-    private void addTextViewIfNew(TextView tv, String sourceClassName) {
-        int hash = System.identityHashCode(tv);
-        for (WeakReference<TextView> ref : registeredTextViews) {
-            if (ref.get() == tv) {
-                logBoth("View already registered. Skipping duplicate registration for " + tv.getClass().getName() + " (Hash: " + hash + ")");
-                return;
-            }
-        }
-
-        registeredTextViews.add(new WeakReference<>(tv));
-        CharSequence currentText = tv.getText();
-        logBoth(">>> REGISTERED NEW TEXTVIEW! Class: " + tv.getClass().getName() + " | SourceClass: " + sourceClassName + " | Hash: " + hash + " | InitialText: '" + currentText + "' | Total Active Registered Views: " + registeredTextViews.size());
-    }
-
-    private void updateAllRegisteredViews() {
-        if (registeredTextViews.isEmpty()) {
-            logBoth("No active TextViews registered. Timer waiting...");
+    private void updateAllRegisteredViews(final String newDecimal) {
+        if (activeTextViewSet.isEmpty()) {
+            logBoth("No active TextViews registered yet.");
             return;
         }
 
-        final String currentDecimal = getRealBatteryDecimal();
-        if (currentDecimal == null) {
-            logBoth("getRealBatteryDecimal() returned NULL. Aborting tick update.");
-            return;
-        }
-
-        if (currentDecimal.equals(lastAppliedDecimal)) {
-            logBoth("Decimal unchanged (" + currentDecimal + "). Skipping redraw for all " + registeredTextViews.size() + " views.");
-            return;
-        }
-
-        logBoth("DECIMAL CHANGED: '" + lastAppliedDecimal + "' -> '" + currentDecimal + "'. Updating " + registeredTextViews.size() + " registered views...");
-        lastAppliedDecimal = currentDecimal;
-
-        Iterator<WeakReference<TextView>> iterator = registeredTextViews.iterator();
-        int activeCount = 0;
-        int cleanedCount = 0;
-
-        while (iterator.hasNext()) {
-            WeakReference<TextView> ref = iterator.next();
-            final TextView tv = ref.get();
-            if (tv == null) {
-                iterator.remove();
-                cleanedCount++;
-                continue;
-            }
-
-            activeCount++;
-            final int viewHash = System.identityHashCode(tv);
-            final String className = tv.getClass().getName();
-
-            tv.post(new Runnable() {
-                @Override
-                public void run() {
-                    CharSequence beforeText = tv.getText();
-                    tv.setText(currentDecimal);
-                    logBoth("APPLIED TEXT! ViewClass: " + className + " | Hash: " + viewHash + " | Before: '" + beforeText + "' -> After: '" + currentDecimal + "'");
+        synchronized (activeTextViewSet) {
+            Iterator<TextView> iterator = activeTextViewSet.iterator();
+            while (iterator.hasNext()) {
+                TextView tv = iterator.next();
+                if (!tv.isAttachedToWindow()) {
+                    logBoth("Cleaning up detached view: " + tv.getClass().getName());
+                    iterator.remove();
+                    continue;
                 }
-            });
+                applyTextToView(tv, newDecimal);
+            }
         }
-
-        logBoth("Tick update dispatched to " + activeCount + " active views (Cleaned " + cleanedCount + " dead GC references).");
     }
 
-    private String getRealBatteryDecimal() {
-        logBoth("Reading " + GAUGE_INFO_PATH);
+    private void applyTextToView(final TextView tv, final String textToApply) {
+        if (tv == null || textToApply == null) return;
+
+        tv.post(new Runnable() {
+            @Override
+            public void run() {
+                CharSequence before = tv.getText();
+                if (before == null || !before.toString().equals(textToApply)) {
+                    tv.setText(textToApply);
+                    logBoth("APPLIED TEXT: '" + before + "' -> '" + textToApply + "' on View: " + tv.getClass().getName());
+                }
+            }
+        });
+    }
+
+    private String readGaugeInfoFromSysfs() {
         try (BufferedReader reader = new BufferedReader(new FileReader(GAUGE_INFO_PATH))) {
             String info = reader.readLine();
-            if (info == null) {
-                logBoth("gauge_info read line is NULL");
-                return null;
-            }
+            if (info == null) return null;
 
             int idx10 = info.indexOf("0x10=");
             int idx12 = info.indexOf("0x12=");
-            if (idx10 == -1 || idx12 == -1) {
-                logBoth("gauge_info missing 0x10= or 0x12= indexes");
-                return null;
-            }
+            if (idx10 == -1 || idx12 == -1) return null;
 
             String hex10_byte1 = info.substring(idx10 + 5, idx10 + 7);
             String hex10_byte2 = info.substring(idx10 + 8, idx10 + 10);
@@ -235,11 +227,9 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             if (full == 0) return null;
 
             double decimalSoc = (rem * 100.0) / full;
-            String result = String.format(Locale.US, "%.2f%%", decimalSoc);
-            logBoth("Parsed rem=" + rem + " mAh, full=" + full + " mAh -> Result: " + result);
-            return result;
+            return String.format(Locale.US, "%.2f%%", decimalSoc);
         } catch (Exception e) {
-            logBoth("EXCEPTION in getRealBatteryDecimal: " + e.getMessage());
+            logBoth("EXCEPTION reading sysfs: " + e.getMessage());
             return null;
         }
     }
