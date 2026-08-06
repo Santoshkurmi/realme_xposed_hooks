@@ -28,16 +28,25 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_InitPackageResources;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import android.util.Log;
+
+import com.realme.modxposed.hooks.HookRealBatteryDecimal;
 
 public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookInitPackageResources {
 
   @Override
   public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
+      XposedBridge.log("[RealBatteryDecimal] MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
+      Log.d("RealBatteryDecimal", "MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
+
       switch (lpparam.packageName) {
           case ClassesConstants.SystemUi:
+              XposedBridge.log("[RealBatteryDecimal] Entering SystemUi hook block!");
+              Log.d("RealBatteryDecimal", "Entering SystemUi hook block!");
               new GestureNavigationView().init(lpparam);
 //              new HookKeyguardPinLock().init(lpparam);
               new HookClock().init(lpparam);
+              new HookRealBatteryDecimal().init(lpparam);
 
               break;
 
