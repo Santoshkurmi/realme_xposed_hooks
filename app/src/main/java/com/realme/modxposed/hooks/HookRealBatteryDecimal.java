@@ -26,7 +26,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static final String TAG = "RealBatteryDecimal";
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
-    private static final long POLL_INTERVAL_MS = 5000;
+    private static final long POLL_INTERVAL_MS = 10000; // 10 Seconds background poll
 
     // Winning OxygenOS SystemUI Classes (Pruned all failed ones)
     private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
