@@ -36,13 +36,13 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
 
   @Override
   public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-      XposedBridge.log("[RealBatteryDecimal] MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
-      Log.d("RealBatteryDecimal", "MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
+      // XposedBridge.log("[RealBatteryDecimal] MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
+      // Log.d("RealBatteryDecimal", "MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
 
       switch (lpparam.packageName) {
           case ClassesConstants.SystemUi:
-              XposedBridge.log("[RealBatteryDecimal] Entering SystemUi hook block!");
-              Log.d("RealBatteryDecimal", "Entering SystemUi hook block!");
+              // XposedBridge.log("[RealBatteryDecimal] Entering SystemUi hook block!");
+              // Log.d("RealBatteryDecimal", "Entering SystemUi hook block!");
               new GestureNavigationView().init(lpparam);
 //              new HookKeyguardPinLock().init(lpparam);
               new HookClock().init(lpparam);
