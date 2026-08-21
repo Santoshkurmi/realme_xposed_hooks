@@ -12,9 +12,7 @@ import android.widget.TextView;
 
 import com.realme.modxposed.IXposedHookLoadPackage;
 
-import java.io.BufferedReader;
-import java.io.FileInputStream;
-import java.io.FileReader;
+import java.io.RandomAccessFile;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -30,7 +28,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
     private static final String PROC_STAT_PATH = "/proc/stat";
-    private static final String GPU_BUSY_PATH = "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage";
+    private static final String GPU_BUSY_PATH = "/sys/class/kgsl/kgsl-3d0/gpubusy";
 
     private static boolean showCpu = true;
     private static boolean showGpu = true;
@@ -41,21 +39,22 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
     private static final String HORIZONTAL_DRAWABLE_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable";
 
-    // Pre-allocated CPU Strings Table (0..99%) to eliminate runtime String allocations during polling loop
+    // Pre-allocated CPU Strings Table (0..99) to eliminate runtime String allocations during polling loop
     private static final String[] CPU_STRINGS = new String[100];
     static {
         for (int i = 0; i < 100; i++) {
             String cpuStr = (i < 10) ? ("\u2007" + i) : String.valueOf(i);
-            CPU_STRINGS[i] = " " + cpuStr + "%";
+            CPU_STRINGS[i] = " " + cpuStr;
         }
     }
 
-    // Pre-allocated GPU Strings Table (0..100%) to eliminate runtime String allocations during polling loop
+    // Pre-allocated GPU Strings Table (0..100 -> max 99) to eliminate runtime String allocations during polling loop
     private static final String[] GPU_STRINGS = new String[101];
     static {
         for (int i = 0; i <= 100; i++) {
-            String gpuStr = (i < 10) ? ("\u2007" + i) : String.valueOf(i);
-            GPU_STRINGS[i] = " " + gpuStr + "%";
+            int displayVal = Math.min(99, i);
+            String gpuStr = (displayVal < 10) ? ("\u2007" + displayVal) : String.valueOf(displayVal);
+            GPU_STRINGS[i] = " " + gpuStr;
         }
     }
 
@@ -75,8 +74,14 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private long prevCpuIdle = 0;
     private boolean isFirstCpuSample = true;
 
-    // Zero-GC buffer for /proc/stat reading
+    // Persistent Zero-GC RandomAccessFile instances to eliminate open/close syscall overhead per tick
+    private RandomAccessFile batteryRaf = null;
+    private RandomAccessFile cpuRaf = null;
+    private RandomAccessFile gpuRaf = null;
+
+    private final byte[] batteryStatBuffer = new byte[512];
     private final byte[] procStatBuffer = new byte[256];
+    private final byte[] gpuStatBuffer = new byte[64];
     private final int[] parsePos = new int[1];
 
     // Pre-allocated permanent Runnable references to avoid GC heap allocations on every poll cycle
@@ -243,6 +248,16 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             backgroundCpuHandler.removeCallbacks(cpuPollRunnable);
         }
         isFirstCpuSample = true;
+
+        closeRaf(batteryRaf); batteryRaf = null;
+        closeRaf(cpuRaf); cpuRaf = null;
+        closeRaf(gpuRaf); gpuRaf = null;
+    }
+
+    private static void closeRaf(RandomAccessFile raf) {
+        if (raf != null) {
+            try { raf.close(); } catch (Throwable ignored) {}
+        }
     }
 
     private synchronized void updateCombinedPercentageAndNotify() {
@@ -264,10 +279,12 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private void calculateCpuUsageZeroGc() {
         if (!isScreenOn) return;
 
-        FileInputStream fis = null;
         try {
-            fis = new FileInputStream(PROC_STAT_PATH);
-            int bytesRead = fis.read(procStatBuffer);
+            if (cpuRaf == null) {
+                cpuRaf = new RandomAccessFile(PROC_STAT_PATH, "r");
+            }
+            cpuRaf.seek(0);
+            int bytesRead = cpuRaf.read(procStatBuffer);
             if (bytesRead <= 0) return;
 
             if (bytesRead > 3 && procStatBuffer[0] == 'c' && procStatBuffer[1] == 'p' && procStatBuffer[2] == 'u') {
@@ -302,46 +319,42 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                     }
                 }
             }
-        } catch (Exception ignored) {
-        } finally {
-            if (fis != null) {
-                try { fis.close(); } catch (Exception ignored) {}
-            }
+        } catch (Throwable e) {
+            closeRaf(cpuRaf);
+            cpuRaf = null;
         }
     }
-
-    // Zero-GC buffer for /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage reading
-    private final byte[] gpuStatBuffer = new byte[64];
 
     private void calculateGpuUsageZeroGc() {
         if (!isScreenOn) return;
 
-        FileInputStream fis = null;
         try {
-            fis = new FileInputStream(GPU_BUSY_PATH);
-            int bytesRead = fis.read(gpuStatBuffer);
-            if (bytesRead <= 0) return;
+            if (gpuRaf == null) {
+                gpuRaf = new RandomAccessFile(GPU_BUSY_PATH, "r");
+            }
+            gpuRaf.seek(0);
+            int bytesRead = gpuRaf.read(gpuStatBuffer);
+            if (bytesRead <= 0) {
+                closeRaf(gpuRaf);
+                gpuRaf = new RandomAccessFile(GPU_BUSY_PATH, "r");
+                bytesRead = gpuRaf.read(gpuStatBuffer);
+            }
 
-            int val = 0;
-            boolean foundDigit = false;
-            for (int i = 0; i < bytesRead; i++) {
-                byte b = gpuStatBuffer[i];
-                if (b >= '0' && b <= '9') {
-                    val = val * 10 + (b - '0');
-                    foundDigit = true;
-                } else if (foundDigit) {
-                    break;
+            if (bytesRead > 0) {
+                parsePos[0] = 0;
+                long currentBusy = parseNextLong(gpuStatBuffer, bytesRead, parsePos);
+                long currentTotal = parseNextLong(gpuStatBuffer, bytesRead, parsePos);
+
+                if (currentTotal > 0 && currentBusy >= 0) {
+                    int gpu = (int) Math.round((currentBusy * 100.0) / currentTotal);
+                    cachedGpuPercentage = Math.min(100, Math.max(0, gpu));
+                } else {
+                    cachedGpuPercentage = 0;
                 }
             }
-
-            if (foundDigit) {
-                cachedGpuPercentage = Math.min(100, Math.max(0, val));
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (fis != null) {
-                try { fis.close(); } catch (Exception ignored) {}
-            }
+        } catch (Throwable e) {
+            closeRaf(gpuRaf);
+            gpuRaf = null;
         }
     }
 
@@ -376,7 +389,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 }
             } catch (Throwable ignored) {}
 
-            // Target ONLY battery_percentage_view
             if ("battery_percentage_view".equals(resName)) {
                 if (!activeTextViewSet.contains(tv)) {
                     activeTextViewSet.add(tv);
@@ -457,10 +469,15 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     }
 
     private String readGaugeInfoFromSysfs() {
-        try (BufferedReader reader = new BufferedReader(new FileReader(GAUGE_INFO_PATH))) {
-            String info = reader.readLine();
-            if (info == null) return null;
+        try {
+            if (batteryRaf == null) {
+                batteryRaf = new RandomAccessFile(GAUGE_INFO_PATH, "r");
+            }
+            batteryRaf.seek(0);
+            int bytesRead = batteryRaf.read(batteryStatBuffer);
+            if (bytesRead <= 0) return null;
 
+            String info = new String(batteryStatBuffer, 0, bytesRead);
             int idx10 = info.indexOf("0x10=");
             int idx12 = info.indexOf("0x12=");
             if (idx10 == -1 || idx12 == -1) return null;
@@ -476,8 +493,11 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             if (full == 0) return null;
 
             double decimalSoc = (rem * 100.0) / full;
-            return String.format(Locale.US, "%.2f%%", decimalSoc);
-        } catch (Exception e) {
+            if (decimalSoc > 100.0) decimalSoc = 100.0;
+            return String.format(Locale.US, "%.2f", decimalSoc);
+        } catch (Throwable e) {
+            closeRaf(batteryRaf);
+            batteryRaf = null;
             return null;
         }
     }
