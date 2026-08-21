@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -28,7 +27,6 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
-    private static final String TAG = "RealBatteryDecimal";
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
     private static final String PROC_STAT_PATH = "/proc/stat";
     private static final long BATTERY_POLL_INTERVAL_MS = 5000; // 5 Seconds battery background poll
@@ -128,7 +126,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     View view = (View) param.thisObject;
-                    unregisterAndLog(view);
+                    unregisterView(view);
                 }
             });
 
@@ -177,11 +175,9 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                             if (intent == null || intent.getAction() == null) return;
                             String action = intent.getAction();
                             if (Intent.ACTION_SCREEN_OFF.equals(action)) {
-                                Log.d(TAG, "[SCREEN OFF] Pausing background CPU & Battery polling threads");
                                 isScreenOn = false;
                                 stopBackgroundPolling();
                             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
-                                Log.d(TAG, "[SCREEN ON] Resuming background CPU & Battery polling threads");
                                 isScreenOn = true;
                                 startBackgroundPolling();
                             }
@@ -189,10 +185,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                     }, filter);
 
                     isReceiverRegistered = true;
-                    Log.d(TAG, "Screen ON/OFF BroadcastReceiver registered successfully");
-                } catch (Throwable t) {
-                    Log.e(TAG, "Failed to register screen receiver", t);
-                }
+                } catch (Throwable ignored) {}
             }
         }
     }
@@ -313,8 +306,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             if ("battery_percentage_view".equals(resName)) {
                 if (!activeTextViewSet.contains(tv)) {
                     activeTextViewSet.add(tv);
-                    int objHash = System.identityHashCode(tv);
-                    Log.d(TAG, "[ATTACHED] View [@ " + Integer.toHexString(objHash) + "] | Total Active Views=" + activeTextViewSet.size());
                 }
                 applyTextToView(tv, cachedDecimalPercentage);
             }
@@ -327,20 +318,17 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 
-    private void unregisterAndLog(View root) {
+    private void unregisterView(View root) {
         if (root == null) return;
 
         if (root instanceof TextView) {
             TextView tv = (TextView) root;
-            if (activeTextViewSet.remove(tv)) {
-                int objHash = System.identityHashCode(tv);
-                Log.d(TAG, "[DETACHED] View [@ " + Integer.toHexString(objHash) + "] | Total Active Views=" + activeTextViewSet.size());
-            }
+            activeTextViewSet.remove(tv);
         } else if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
             int count = group.getChildCount();
             for (int i = 0; i < count; i++) {
-                unregisterAndLog(group.getChildAt(i));
+                unregisterView(group.getChildAt(i));
             }
         }
     }
@@ -369,19 +357,13 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 final TextView tv = iterator.next();
                 if (!tv.isAttachedToWindow()) {
                     iterator.remove();
-                    int objHash = System.identityHashCode(tv);
-                    Log.d(TAG, "[PURGED DETACHED] View [@ " + Integer.toHexString(objHash) + "] | Remaining Active Views=" + activeTextViewSet.size());
                     continue;
                 }
 
-                int objHash = System.identityHashCode(tv);
                 if (!tv.isShown()) {
-                    Log.d(TAG, "[HIDDEN - SKIPPED] View [@ " + Integer.toHexString(objHash) + "]");
                     continue;
                 }
 
-                Log.d(TAG, "[VISIBLE - UPDATING] View [@ " + Integer.toHexString(objHash) + "]");
-                
                 tv.post(new Runnable() {
                     @Override
                     public void run() {
