@@ -1,125 +1,106 @@
 package com.realme.modxposed;
 
-import android.view.KeyEvent;
-
-import com.realme.modxposed.hooks.AccountManagerHook;
 import com.realme.modxposed.hooks.AccountManagerHook5;
-import com.realme.modxposed.hooks.DisablePowerButton;
 import com.realme.modxposed.hooks.GestureNavigationView;
-import com.realme.modxposed.hooks.GhokSewaMod;
 import com.realme.modxposed.hooks.HamroCsit;
 import com.realme.modxposed.hooks.HookClock;
-import com.realme.modxposed.hooks.HookGame;
-import com.realme.modxposed.hooks.HookKeyguardPinLock;
-import com.realme.modxposed.hooks.HookSystemLauncher;
-import com.realme.modxposed.hooks.DynamicHooking;
-import com.realme.modxposed.hooks.HookWallpaper;
+import com.realme.modxposed.hooks.HookRealBatteryDecimal;
 import com.realme.modxposed.hooks.LauncherAnimationHook;
-import com.realme.modxposed.hooks.NIC;
 import com.realme.modxposed.hooks.Siddha;
-import com.realme.modxposed.hooks.VideoDownloader;
-
 
 import de.robv.android.xposed.IXposedHookInitPackageResources;
 import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.IXposedHookZygoteInit;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
+import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.callbacks.XC_InitPackageResources;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
-import android.util.Log;
-
-import com.realme.modxposed.hooks.HookRealBatteryDecimal;
 
 public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookInitPackageResources {
 
-  @Override
-  public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-      // XposedBridge.log("[RealBatteryDecimal] MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
-      // Log.d("RealBatteryDecimal", "MainXposedHookEntry handleLoadPackage: " + lpparam.packageName);
+    private static XSharedPreferences prefs;
 
-      switch (lpparam.packageName) {
-          case ClassesConstants.SystemUi:
-              // XposedBridge.log("[RealBatteryDecimal] Entering SystemUi hook block!");
-              // Log.d("RealBatteryDecimal", "Entering SystemUi hook block!");
-              new GestureNavigationView().init(lpparam);
-//              new HookKeyguardPinLock().init(lpparam);
-              new HookClock().init(lpparam);
-              new HookRealBatteryDecimal().init(lpparam);
+    private static synchronized XSharedPreferences getPrefs() {
+        if (prefs == null) {
+            prefs = new XSharedPreferences("com.realme.modxposed", "settings");
+            prefs.makeWorldReadable();
+        } else {
+            prefs.reload();
+        }
+        return prefs;
+    }
 
-              break;
+    private static boolean isAppEnabled(String pkg) {
+        try {
+            XSharedPreferences p = getPrefs();
+            if (p != null) return p.getBoolean("app_enabled_" + pkg, true);
+        } catch (Throwable ignored) {}
+        return true;
+    }
 
-//          case "com.oplus.wallpapers":
-//              new HookWallpaper().init(lpparam);
-//              break;
+    private static boolean isHookEnabled(String hookId) {
+        try {
+            XSharedPreferences p = getPrefs();
+            if (p != null) return p.getBoolean("hook_enabled_" + hookId, true);
+        } catch (Throwable ignored) {}
+        return true;
+    }
 
-          case "com.android.launcher":
-              new LauncherAnimationHook().init(lpparam);
-              break;
-          case "com.hamrocsit":
-              new HamroCsit().init(lpparam);
-              break;
-          case "com.engineeringnepal.ghoksewa":
-              break;
-          case "com.google.android.gm":
-          case "com.google.android.apps.photos":
-//              new AccountManagerHook().init(lpparam);
-              new AccountManagerHook5().init(lpparam);
-              break;
+    @Override
+    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
+        String pkgName = lpparam.packageName;
 
-          case "com.f1soft.banksmart.siddhartha":
-              new Siddha().init(lpparam);
-              break;
-//          case "android":new DisablePowerButton().init(lpparam);
+        // Global check: Is hook enabled for this target app as a whole?
+        if (!isAppEnabled(pkgName)) {
+            return;
+        }
 
+        switch (pkgName) {
+            case ClassesConstants.SystemUi:
+                if (isHookEnabled("GestureNavigationView")) {
+                    new GestureNavigationView().init(lpparam);
+                }
+                // HookKeyguardPinLock is intentionally disabled per user instruction
+                if (isHookEnabled("HookClock")) {
+                    new HookClock().init(lpparam);
+                }
+                if (isHookEnabled("HookRealBatteryDecimal")) {
+                    new HookRealBatteryDecimal().init(lpparam);
+                }
+                break;
 
-//          default: new VideoDownloader().init(lpparam);
+            case "com.android.launcher":
+                if (isHookEnabled("LauncherAnimationHook")) {
+                    new LauncherAnimationHook().init(lpparam);
+                }
+                break;
 
-//          default:
-//              new HookGame().init(lpparam);
-      }
+            case "com.hamrocsit":
+                if (isHookEnabled("HamroCsit")) {
+                    new HamroCsit().init(lpparam);
+                }
+                break;
 
-//    else if ( lpparam.packageName.equals("com.google.android.googlequicksearchbox") || lpparam.packageName.equals("com.android.launcher")|| lpparam.packageName.equals("com.coloros.gallery3d") ){
-//      new LauncherAnimationHook().init(lpparam);
-//    }
+            case "com.google.android.gm":
+            case "com.google.android.apps.photos":
+                if (isHookEnabled("AccountManagerHook5")) {
+                    new AccountManagerHook5().init(lpparam);
+                }
+                break;
 
-    // if for NIC
-//    new NIC().init(lpparam);
-//    if(lpparam.packageName.equals("com.f1soft.esewa"))
-//    else new DynamicHooking().init(lpparam);
+            case "com.f1soft.banksmart.siddhartha":
+                if (isHookEnabled("Siddha")) {
+                    new Siddha().init(lpparam);
+                }
+                break;
 
-  }
+            case "com.engineeringnepal.ghoksewa":
+                if (isHookEnabled("GhokSewaMod")) {
+                    // new GhokSewaMod().init(lpparam);
+                }
+                break;
+        }
+    }
 
-  @Override
-  public void handleInitPackageResources(XC_InitPackageResources.InitPackageResourcesParam resparam) throws Throwable {
-
-//    if (resparam.packageName.equals(ClassesConstants.SystemLauncher))
-//      new HookSystemLauncher().init(resparam);
-
-  }
-
-//    @Override
-//    public void initZygote(StartupParam startupParam) throws Throwable {
-//        XposedBridge.log("Hooking power Button Disabled");
-//        try{
-//            Class<?> manager;
-//            manager = XposedHelpers.findClassIfExists("com.android.internal.policy.impl.PhoneWindowManager",null);
-//            if(manager==null) manager = XposedHelpers.findClassIfExists("com.android.server.policy.PhoneWindowManager",null);
-//            if(manager==null) manager = XposedHelpers.findClass("com.android.server.policy.OemPhoneWindowManager",null);
-//            XposedHelpers.findAndHookMethod(manager, "interceptKeyBeforeQueueing", KeyEvent.class, int.class, boolean.class, new XC_MethodHook() {
-//                @Override
-//                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-//                    KeyEvent event = (KeyEvent) param.args[0];
-//                    XposedBridge.log("Disable power button");
-//                    if(event.getKeyCode()==KeyEvent.KEYCODE_POWER){
-//                        param.setResult(0);
-//                    }
-//                }
-//            });
-//        }
-//        catch(Exception e){
-//            XposedBridge.log(e.toString());
-//        }
-//    }//initZygote
+    @Override
+    public void handleInitPackageResources(XC_InitPackageResources.InitPackageResourcesParam resparam) throws Throwable {
+    }
 }

@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Set;
 
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
@@ -29,8 +30,10 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
     private static final String PROC_STAT_PATH = "/proc/stat";
-    private static final long BATTERY_POLL_INTERVAL_MS = 5000; // 5 Seconds battery background poll
-    private static final long CPU_POLL_INTERVAL_MS = 1000;     // 1 Second CPU background poll
+
+    private static boolean showCpu = true;
+    private static long batteryIntervalMs = 5000;
+    private static long cpuIntervalMs = 1000;
 
     // Target Classes
     private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
@@ -75,7 +78,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 updateCombinedPercentageAndNotify();
             }
             if (isScreenOn && backgroundBatteryHandler != null) {
-                backgroundBatteryHandler.postDelayed(this, BATTERY_POLL_INTERVAL_MS);
+                backgroundBatteryHandler.postDelayed(this, batteryIntervalMs);
             }
         }
     };
@@ -84,16 +87,30 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         @Override
         public void run() {
             if (!isScreenOn) return;
-            calculateCpuUsageZeroGc();
+            if (showCpu) {
+                calculateCpuUsageZeroGc();
+            }
             updateCombinedPercentageAndNotify();
             if (isScreenOn && backgroundCpuHandler != null) {
-                backgroundCpuHandler.postDelayed(this, CPU_POLL_INTERVAL_MS);
+                backgroundCpuHandler.postDelayed(this, cpuIntervalMs);
             }
         }
     };
 
+    private void loadXposedPreferences() {
+        try {
+            XSharedPreferences prefs = new XSharedPreferences("com.realme.modxposed", "settings");
+            prefs.makeWorldReadable();
+            showCpu = prefs.getBoolean("battery_decimal_show_cpu", true);
+            cpuIntervalMs = prefs.getLong("battery_decimal_cpu_interval", 1000L);
+            batteryIntervalMs = prefs.getLong("battery_decimal_poll_interval", 5000L);
+        } catch (Throwable ignored) {}
+    }
+
     @Override
     public void init(XC_LoadPackage.LoadPackageParam lpparam) {
+        loadXposedPreferences();
+
         // 1. Start Background Polling Threads
         try {
             HandlerThread batteryThread = new HandlerThread("BatteryDecimalThread");
@@ -214,7 +231,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private synchronized void updateCombinedPercentageAndNotify() {
         if (cachedRawBatterySoc != null) {
-            String combined = cachedRawBatterySoc + CPU_STRINGS[cachedCpuPercentage];
+            String combined = showCpu ? (cachedRawBatterySoc + CPU_STRINGS[cachedCpuPercentage]) : cachedRawBatterySoc;
             if (!combined.equals(cachedDecimalPercentage)) {
                 cachedDecimalPercentage = combined;
                 updateAllRegisteredViews(combined);
