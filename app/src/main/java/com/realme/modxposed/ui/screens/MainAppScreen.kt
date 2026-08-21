@@ -29,11 +29,14 @@ import kotlin.math.roundToLong
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import com.realme.modxposed.utils.RootUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScreen() {
+    val context = LocalContext.current
     var selectedApp by remember { mutableStateOf<TargetApp?>(null) }
+    var showMenu by remember { mutableStateOf(false) }
 
     // Intercept system Back button / gesture when viewing App Detail Screen
     BackHandler(enabled = selectedApp != null) {
@@ -69,6 +72,35 @@ fun MainAppScreen() {
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 12.dp)
                         )
+                    }
+                },
+                actions = {
+                    if (selectedApp != null) {
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Restart ${selectedApp!!.appName} Scope") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        val app = selectedApp!!
+                                        RootUtils.killAndRestartPackage(context, app.packageName, app.appName)
+                                    }
+                                )
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
