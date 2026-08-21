@@ -1,7 +1,12 @@
 package com.realme.modxposed.hooks;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -9,6 +14,7 @@ import android.widget.TextView;
 import com.realme.modxposed.IXposedHookLoadPackage;
 
 import java.io.BufferedReader;
+import java.io.FileInputStream;
 import java.io.FileReader;
 import java.util.Collections;
 import java.util.HashSet;
@@ -22,6 +28,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
+    private static final String TAG = "RealBatteryDecimal";
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
     private static final String PROC_STAT_PATH = "/proc/stat";
     private static final long BATTERY_POLL_INTERVAL_MS = 5000; // 5 Seconds battery background poll
@@ -31,9 +38,21 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
     private static final String HORIZONTAL_DRAWABLE_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable";
 
+    // Pre-allocated CPU Strings Table (0..99%) to eliminate runtime String allocations during polling loop
+    private static final String[] CPU_STRINGS = new String[100];
+    static {
+        for (int i = 0; i < 100; i++) {
+            String cpuStr = (i < 10) ? ("\u2007" + i) : String.valueOf(i);
+            CPU_STRINGS[i] = " " + cpuStr + "%";
+        }
+    }
+
     private static volatile String cachedRawBatterySoc = null;
     private static volatile int cachedCpuPercentage = 0;
     private static volatile String cachedDecimalPercentage = null;
+
+    private static volatile boolean isScreenOn = true;
+    private static volatile boolean isReceiverRegistered = false;
 
     private Handler backgroundBatteryHandler;
     private Handler backgroundCpuHandler;
@@ -42,6 +61,38 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private long prevCpuTotal = 0;
     private long prevCpuIdle = 0;
     private boolean isFirstCpuSample = true;
+
+    // Zero-GC buffer for /proc/stat reading
+    private final byte[] procStatBuffer = new byte[256];
+    private final int[] parsePos = new int[1];
+
+    // Pre-allocated permanent Runnable references to avoid GC heap allocations on every poll cycle
+    private final Runnable batteryPollRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isScreenOn) return;
+            String newDecimal = readGaugeInfoFromSysfs();
+            if (newDecimal != null) {
+                cachedRawBatterySoc = newDecimal;
+                updateCombinedPercentageAndNotify();
+            }
+            if (isScreenOn && backgroundBatteryHandler != null) {
+                backgroundBatteryHandler.postDelayed(this, BATTERY_POLL_INTERVAL_MS);
+            }
+        }
+    };
+
+    private final Runnable cpuPollRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isScreenOn) return;
+            calculateCpuUsageZeroGc();
+            updateCombinedPercentageAndNotify();
+            if (isScreenOn && backgroundCpuHandler != null) {
+                backgroundCpuHandler.postDelayed(this, CPU_POLL_INTERVAL_MS);
+            }
+        }
+    };
 
     @Override
     public void init(XC_LoadPackage.LoadPackageParam lpparam) {
@@ -62,21 +113,22 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         try {
             Class<?> clazz = XposedHelpers.findClass(STAT_BATTERY_VIEW_CLASS, lpparam.classLoader);
 
-            // Hook onFinishInflate
-            XposedHelpers.findAndHookMethod(clazz, "onFinishInflate", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                    View view = (View) param.thisObject;
-                    registerAndImmediatelyUpdate(view);
-                }
-            });
-
             // Hook onAttachedToWindow
             XposedHelpers.findAndHookMethod(clazz, "onAttachedToWindow", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     View view = (View) param.thisObject;
+                    ensureScreenReceiverRegistered(view.getContext());
                     registerAndImmediatelyUpdate(view);
+                }
+            });
+
+            // Hook onDetachedFromWindow
+            XposedHelpers.findAndHookMethod(clazz, "onDetachedFromWindow", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    View view = (View) param.thisObject;
+                    unregisterAndLog(view);
                 }
             });
 
@@ -109,79 +161,139 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {}
     }
 
-    private void startBackgroundPolling() {
-        // Battery Polling Task
-        backgroundBatteryHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                String newDecimal = readGaugeInfoFromSysfs();
-                if (newDecimal != null) {
-                    cachedRawBatterySoc = newDecimal;
-                    updateCombinedPercentageAndNotify();
-                }
-                backgroundBatteryHandler.postDelayed(this, BATTERY_POLL_INTERVAL_MS);
-            }
-        });
+    private void ensureScreenReceiverRegistered(Context context) {
+        if (isReceiverRegistered || context == null) return;
+        synchronized (HookRealBatteryDecimal.class) {
+            if (!isReceiverRegistered) {
+                try {
+                    Context appContext = context.getApplicationContext();
+                    IntentFilter filter = new IntentFilter();
+                    filter.addAction(Intent.ACTION_SCREEN_ON);
+                    filter.addAction(Intent.ACTION_SCREEN_OFF);
 
-        // CPU Polling Task (Every 1 Second)
-        backgroundCpuHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                calculateCpuUsage();
-                updateCombinedPercentageAndNotify();
-                backgroundCpuHandler.postDelayed(this, CPU_POLL_INTERVAL_MS);
+                    appContext.registerReceiver(new BroadcastReceiver() {
+                        @Override
+                        public void onReceive(Context ctx, Intent intent) {
+                            if (intent == null || intent.getAction() == null) return;
+                            String action = intent.getAction();
+                            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                                Log.d(TAG, "[SCREEN OFF] Pausing background CPU & Battery polling threads");
+                                isScreenOn = false;
+                                stopBackgroundPolling();
+                            } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
+                                Log.d(TAG, "[SCREEN ON] Resuming background CPU & Battery polling threads");
+                                isScreenOn = true;
+                                startBackgroundPolling();
+                            }
+                        }
+                    }, filter);
+
+                    isReceiverRegistered = true;
+                    Log.d(TAG, "Screen ON/OFF BroadcastReceiver registered successfully");
+                } catch (Throwable t) {
+                    Log.e(TAG, "Failed to register screen receiver", t);
+                }
             }
-        });
+        }
+    }
+
+    private synchronized void startBackgroundPolling() {
+        if (!isScreenOn) return;
+        stopBackgroundPolling(); // Prevent duplicate posts
+
+        if (backgroundBatteryHandler != null) {
+            backgroundBatteryHandler.post(batteryPollRunnable);
+        }
+        if (backgroundCpuHandler != null) {
+            backgroundCpuHandler.post(cpuPollRunnable);
+        }
+    }
+
+    private synchronized void stopBackgroundPolling() {
+        if (backgroundBatteryHandler != null) {
+            backgroundBatteryHandler.removeCallbacks(batteryPollRunnable);
+        }
+        if (backgroundCpuHandler != null) {
+            backgroundCpuHandler.removeCallbacks(cpuPollRunnable);
+        }
+        isFirstCpuSample = true;
     }
 
     private synchronized void updateCombinedPercentageAndNotify() {
         if (cachedRawBatterySoc != null) {
-            String cpuStr = (cachedCpuPercentage < 10) ? ("\u2007" + cachedCpuPercentage) : String.valueOf(cachedCpuPercentage);
-            String combined = cachedRawBatterySoc + " " + cpuStr + "%";
-            cachedDecimalPercentage = combined;
-            updateAllRegisteredViews(combined);
+            String combined = cachedRawBatterySoc + CPU_STRINGS[cachedCpuPercentage];
+            if (!combined.equals(cachedDecimalPercentage)) {
+                cachedDecimalPercentage = combined;
+                updateAllRegisteredViews(combined);
+            }
         }
     }
 
-    private void calculateCpuUsage() {
-        try (BufferedReader reader = new BufferedReader(new FileReader(PROC_STAT_PATH))) {
-            String line = reader.readLine();
-            if (line != null && line.startsWith("cpu")) {
-                String[] tokens = line.trim().split("\\s+");
-                if (tokens.length >= 5) {
-                    long user = Long.parseLong(tokens[1]);
-                    long nice = Long.parseLong(tokens[2]);
-                    long system = Long.parseLong(tokens[3]);
-                    long idle = Long.parseLong(tokens[4]);
-                    long iowait = tokens.length > 5 ? Long.parseLong(tokens[5]) : 0;
-                    long irq = tokens.length > 6 ? Long.parseLong(tokens[6]) : 0;
-                    long softirq = tokens.length > 7 ? Long.parseLong(tokens[7]) : 0;
-                    long steal = tokens.length > 8 ? Long.parseLong(tokens[8]) : 0;
+    private void calculateCpuUsageZeroGc() {
+        if (!isScreenOn) return;
 
-                    long currentIdle = idle + iowait;
-                    long currentTotal = user + nice + system + idle + iowait + irq + softirq + steal;
+        FileInputStream fis = null;
+        try {
+            fis = new FileInputStream(PROC_STAT_PATH);
+            int bytesRead = fis.read(procStatBuffer);
+            if (bytesRead <= 0) return;
 
-                    if (isFirstCpuSample) {
-                        prevCpuTotal = currentTotal;
-                        prevCpuIdle = currentIdle;
-                        isFirstCpuSample = false;
-                        cachedCpuPercentage = 0;
-                    } else {
-                        long totalDiff = currentTotal - prevCpuTotal;
-                        long idleDiff = currentIdle - prevCpuIdle;
-                        prevCpuTotal = currentTotal;
-                        prevCpuIdle = currentIdle;
+            if (bytesRead > 3 && procStatBuffer[0] == 'c' && procStatBuffer[1] == 'p' && procStatBuffer[2] == 'u') {
+                parsePos[0] = 3;
+                long user = parseNextLong(procStatBuffer, bytesRead, parsePos);
+                long nice = parseNextLong(procStatBuffer, bytesRead, parsePos);
+                long system = parseNextLong(procStatBuffer, bytesRead, parsePos);
+                long idle = parseNextLong(procStatBuffer, bytesRead, parsePos);
+                long iowait = parseNextLong(procStatBuffer, bytesRead, parsePos);
+                long irq = parseNextLong(procStatBuffer, bytesRead, parsePos);
+                long softirq = parseNextLong(procStatBuffer, bytesRead, parsePos);
+                long steal = parseNextLong(procStatBuffer, bytesRead, parsePos);
 
-                        if (totalDiff > 0) {
-                            long busyDiff = totalDiff - idleDiff;
-                            int cpu = (int) Math.round((busyDiff * 100.0) / totalDiff);
-                            // Bounded to max 99% as 100% is capped to 99%
-                            cachedCpuPercentage = Math.min(99, Math.max(0, cpu));
-                        }
+                long currentIdle = idle + iowait;
+                long currentTotal = user + nice + system + idle + iowait + irq + softirq + steal;
+
+                if (isFirstCpuSample) {
+                    prevCpuTotal = currentTotal;
+                    prevCpuIdle = currentIdle;
+                    isFirstCpuSample = false;
+                    cachedCpuPercentage = 0;
+                } else {
+                    long totalDiff = currentTotal - prevCpuTotal;
+                    long idleDiff = currentIdle - prevCpuIdle;
+                    prevCpuTotal = currentTotal;
+                    prevCpuIdle = currentIdle;
+
+                    if (totalDiff > 0) {
+                        long busyDiff = totalDiff - idleDiff;
+                        int cpu = (int) Math.round((busyDiff * 100.0) / totalDiff);
+                        cachedCpuPercentage = Math.min(99, Math.max(0, cpu));
                     }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        } finally {
+            if (fis != null) {
+                try { fis.close(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private static long parseNextLong(byte[] buf, int limit, int[] pos) {
+        int i = pos[0];
+        while (i < limit && buf[i] <= ' ' && buf[i] != '\n' && buf[i] != '\r') {
+            i++;
+        }
+        if (i >= limit || buf[i] == '\n' || buf[i] == '\r') {
+            pos[0] = i;
+            return 0;
+        }
+        long val = 0;
+        while (i < limit && buf[i] >= '0' && buf[i] <= '9') {
+            val = val * 10 + (buf[i] - '0');
+            i++;
+        }
+        pos[0] = i;
+        return val;
     }
 
     private void registerAndImmediatelyUpdate(View root) {
@@ -189,15 +301,46 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
         if (root instanceof TextView) {
             TextView tv = (TextView) root;
-            if (!activeTextViewSet.contains(tv)) {
-                activeTextViewSet.add(tv);
+            String resName = "NO_ID";
+            int intId = tv.getId();
+            try {
+                if (intId != View.NO_ID && tv.getResources() != null) {
+                    resName = tv.getResources().getResourceEntryName(intId);
+                }
+            } catch (Throwable ignored) {}
+
+            // Target ONLY battery_percentage_view
+            if ("battery_percentage_view".equals(resName)) {
+                if (!activeTextViewSet.contains(tv)) {
+                    activeTextViewSet.add(tv);
+                    int objHash = System.identityHashCode(tv);
+                    Log.d(TAG, "[ATTACHED] View [@ " + Integer.toHexString(objHash) + "] | Total Active Views=" + activeTextViewSet.size());
+                }
+                applyTextToView(tv, cachedDecimalPercentage);
             }
-            applyTextToView(tv, cachedDecimalPercentage);
         } else if (root instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) root;
             int count = group.getChildCount();
             for (int i = 0; i < count; i++) {
                 registerAndImmediatelyUpdate(group.getChildAt(i));
+            }
+        }
+    }
+
+    private void unregisterAndLog(View root) {
+        if (root == null) return;
+
+        if (root instanceof TextView) {
+            TextView tv = (TextView) root;
+            if (activeTextViewSet.remove(tv)) {
+                int objHash = System.identityHashCode(tv);
+                Log.d(TAG, "[DETACHED] View [@ " + Integer.toHexString(objHash) + "] | Total Active Views=" + activeTextViewSet.size());
+            }
+        } else if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            int count = group.getChildCount();
+            for (int i = 0; i < count; i++) {
+                unregisterAndLog(group.getChildAt(i));
             }
         }
     }
@@ -218,7 +361,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     }
 
     private void updateAllRegisteredViews(final String newDecimal) {
-        if (activeTextViewSet.isEmpty()) return;
+        if (activeTextViewSet.isEmpty() || newDecimal == null) return;
 
         synchronized (activeTextViewSet) {
             Iterator<TextView> iterator = activeTextViewSet.iterator();
@@ -226,8 +369,18 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 final TextView tv = iterator.next();
                 if (!tv.isAttachedToWindow()) {
                     iterator.remove();
+                    int objHash = System.identityHashCode(tv);
+                    Log.d(TAG, "[PURGED DETACHED] View [@ " + Integer.toHexString(objHash) + "] | Remaining Active Views=" + activeTextViewSet.size());
                     continue;
                 }
+
+                int objHash = System.identityHashCode(tv);
+                if (!tv.isShown()) {
+                    Log.d(TAG, "[HIDDEN - SKIPPED] View [@ " + Integer.toHexString(objHash) + "]");
+                    continue;
+                }
+
+                Log.d(TAG, "[VISIBLE - UPDATING] View [@ " + Integer.toHexString(objHash) + "]");
                 
                 tv.post(new Runnable() {
                     @Override
@@ -273,4 +426,3 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 }
-
