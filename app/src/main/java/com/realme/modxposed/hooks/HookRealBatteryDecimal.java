@@ -23,24 +23,38 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
-    private static final long POLL_INTERVAL_MS = 5000; // 5 Seconds background poll
+    private static final String PROC_STAT_PATH = "/proc/stat";
+    private static final long BATTERY_POLL_INTERVAL_MS = 5000; // 5 Seconds battery background poll
+    private static final long CPU_POLL_INTERVAL_MS = 1000;     // 1 Second CPU background poll
 
     // Target Classes
     private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
     private static final String HORIZONTAL_DRAWABLE_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable";
 
+    private static volatile String cachedRawBatterySoc = null;
+    private static volatile int cachedCpuPercentage = 0;
     private static volatile String cachedDecimalPercentage = null;
 
-    private Handler backgroundHandler;
+    private Handler backgroundBatteryHandler;
+    private Handler backgroundCpuHandler;
     private final Set<TextView> activeTextViewSet = Collections.synchronizedSet(new HashSet<TextView>());
+
+    private long prevCpuTotal = 0;
+    private long prevCpuIdle = 0;
+    private boolean isFirstCpuSample = true;
 
     @Override
     public void init(XC_LoadPackage.LoadPackageParam lpparam) {
-        // 1. Start Background Polling Thread
+        // 1. Start Background Polling Threads
         try {
-            HandlerThread thread = new HandlerThread("BatteryDecimalThread");
-            thread.start();
-            backgroundHandler = new Handler(thread.getLooper());
+            HandlerThread batteryThread = new HandlerThread("BatteryDecimalThread");
+            batteryThread.start();
+            backgroundBatteryHandler = new Handler(batteryThread.getLooper());
+
+            HandlerThread cpuThread = new HandlerThread("CpuStatThread");
+            cpuThread.start();
+            backgroundCpuHandler = new Handler(cpuThread.getLooper());
+
             startBackgroundPolling();
         } catch (Throwable ignored) {}
 
@@ -96,17 +110,78 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     }
 
     private void startBackgroundPolling() {
-        backgroundHandler.post(new Runnable() {
+        // Battery Polling Task
+        backgroundBatteryHandler.post(new Runnable() {
             @Override
             public void run() {
                 String newDecimal = readGaugeInfoFromSysfs();
                 if (newDecimal != null) {
-                    cachedDecimalPercentage = newDecimal;
-                    updateAllRegisteredViews(newDecimal);
+                    cachedRawBatterySoc = newDecimal;
+                    updateCombinedPercentageAndNotify();
                 }
-                backgroundHandler.postDelayed(this, POLL_INTERVAL_MS);
+                backgroundBatteryHandler.postDelayed(this, BATTERY_POLL_INTERVAL_MS);
             }
         });
+
+        // CPU Polling Task (Every 1 Second)
+        backgroundCpuHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                calculateCpuUsage();
+                updateCombinedPercentageAndNotify();
+                backgroundCpuHandler.postDelayed(this, CPU_POLL_INTERVAL_MS);
+            }
+        });
+    }
+
+    private synchronized void updateCombinedPercentageAndNotify() {
+        if (cachedRawBatterySoc != null) {
+            String cpuStr = (cachedCpuPercentage < 10) ? ("\u2007" + cachedCpuPercentage) : String.valueOf(cachedCpuPercentage);
+            String combined = cachedRawBatterySoc + " " + cpuStr + "%";
+            cachedDecimalPercentage = combined;
+            updateAllRegisteredViews(combined);
+        }
+    }
+
+    private void calculateCpuUsage() {
+        try (BufferedReader reader = new BufferedReader(new FileReader(PROC_STAT_PATH))) {
+            String line = reader.readLine();
+            if (line != null && line.startsWith("cpu")) {
+                String[] tokens = line.trim().split("\\s+");
+                if (tokens.length >= 5) {
+                    long user = Long.parseLong(tokens[1]);
+                    long nice = Long.parseLong(tokens[2]);
+                    long system = Long.parseLong(tokens[3]);
+                    long idle = Long.parseLong(tokens[4]);
+                    long iowait = tokens.length > 5 ? Long.parseLong(tokens[5]) : 0;
+                    long irq = tokens.length > 6 ? Long.parseLong(tokens[6]) : 0;
+                    long softirq = tokens.length > 7 ? Long.parseLong(tokens[7]) : 0;
+                    long steal = tokens.length > 8 ? Long.parseLong(tokens[8]) : 0;
+
+                    long currentIdle = idle + iowait;
+                    long currentTotal = user + nice + system + idle + iowait + irq + softirq + steal;
+
+                    if (isFirstCpuSample) {
+                        prevCpuTotal = currentTotal;
+                        prevCpuIdle = currentIdle;
+                        isFirstCpuSample = false;
+                        cachedCpuPercentage = 0;
+                    } else {
+                        long totalDiff = currentTotal - prevCpuTotal;
+                        long idleDiff = currentIdle - prevCpuIdle;
+                        prevCpuTotal = currentTotal;
+                        prevCpuIdle = currentIdle;
+
+                        if (totalDiff > 0) {
+                            long busyDiff = totalDiff - idleDiff;
+                            int cpu = (int) Math.round((busyDiff * 100.0) / totalDiff);
+                            // Bounded to max 99% as 100% is capped to 99%
+                            cachedCpuPercentage = Math.min(99, Math.max(0, cpu));
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
     }
 
     private void registerAndImmediatelyUpdate(View root) {
@@ -198,3 +273,4 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 }
+
