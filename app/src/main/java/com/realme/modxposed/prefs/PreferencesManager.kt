@@ -7,6 +7,7 @@ object PreferencesManager {
     const val PREF_NAME = "settings"
 
     const val KEY_BATTERY_SHOW_CPU = "battery_decimal_show_cpu"
+    const val KEY_BATTERY_SHOW_GPU = "battery_decimal_show_gpu"
     const val KEY_BATTERY_CPU_INTERVAL = "battery_decimal_cpu_interval"
     const val KEY_BATTERY_POLL_INTERVAL = "battery_decimal_poll_interval"
 
@@ -36,6 +37,14 @@ object PreferencesManager {
 
     fun setBatteryShowCpu(context: Context, show: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_BATTERY_SHOW_CPU, show).apply()
+    }
+
+    fun getBatteryShowGpu(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_BATTERY_SHOW_GPU, true)
+    }
+
+    fun setBatteryShowGpu(context: Context, show: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BATTERY_SHOW_GPU, show).apply()
     }
 
     fun getBatteryCpuInterval(context: Context): Long {

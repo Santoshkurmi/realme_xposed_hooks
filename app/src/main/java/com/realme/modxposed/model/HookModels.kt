@@ -60,20 +60,6 @@ object HookRegistry {
             )
         ),
         TargetApp(
-            packageName = "com.google.android.apps.photos",
-            appName = "Google Photos & Accounts",
-            description = "Google Photos and Account Manager hooks",
-            primaryColorHex = 0xFFEF4444, // Red
-            hooks = listOf(
-                HookItem(
-                    id = "AccountManagerHook5",
-                    name = "Account Manager Mod 5",
-                    description = "Modifies Google account manager responses and photo sync behavior",
-                    targetClass = "android.accounts.AccountManager"
-                )
-            )
-        ),
-        TargetApp(
             packageName = "com.f1soft.banksmart.siddhartha",
             appName = "Siddhartha Bank Smart",
             description = "Siddhartha Bank application features",

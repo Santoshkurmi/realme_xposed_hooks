@@ -396,6 +396,9 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
     var showCpu by remember {
         mutableStateOf(PreferencesManager.getBatteryShowCpu(context))
     }
+    var showGpu by remember {
+        mutableStateOf(PreferencesManager.getBatteryShowGpu(context))
+    }
     var cpuInterval by remember {
         mutableStateOf(PreferencesManager.getBatteryCpuInterval(context).toFloat())
     }
@@ -423,7 +426,7 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = if (showCpu) "Shows '81.58% 23%'" else "Shows '81.58%' (Battery Decimal only)",
+                    text = if (showCpu) "Shows CPU percentage after battery decimal" else "CPU percentage hidden",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -438,15 +441,42 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
             )
         }
 
-        // CPU Polling Interval Slider
-        if (showCpu) {
+        // Show GPU Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Display System GPU Percentage",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (showGpu) "Shows GPU percentage (/sys/class/kgsl/kgsl-3d0) after CPU" else "GPU percentage hidden",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Switch(
+                checked = showGpu,
+                onCheckedChange = { checked ->
+                    showGpu = checked
+                    PreferencesManager.setBatteryShowGpu(context, checked)
+                }
+            )
+        }
+
+        // CPU & GPU Polling Interval Slider
+        if (showCpu || showGpu) {
             Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "CPU Polling Interval",
+                        text = "CPU & GPU Polling Interval",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )

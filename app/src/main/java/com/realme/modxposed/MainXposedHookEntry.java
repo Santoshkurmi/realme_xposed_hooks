@@ -1,6 +1,5 @@
 package com.realme.modxposed;
 
-import com.realme.modxposed.hooks.AccountManagerHook5;
 import com.realme.modxposed.hooks.GestureNavigationView;
 import com.realme.modxposed.hooks.HamroCsit;
 import com.realme.modxposed.hooks.HookClock;
@@ -76,13 +75,6 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
             case "com.hamrocsit":
                 if (isHookEnabled("HamroCsit")) {
                     new HamroCsit().init(lpparam);
-                }
-                break;
-
-            case "com.google.android.gm":
-            case "com.google.android.apps.photos":
-                if (isHookEnabled("AccountManagerHook5")) {
-                    new AccountManagerHook5().init(lpparam);
                 }
                 break;
 

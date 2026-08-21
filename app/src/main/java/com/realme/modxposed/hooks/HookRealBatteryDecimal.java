@@ -30,8 +30,10 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
     private static final String PROC_STAT_PATH = "/proc/stat";
+    private static final String GPU_BUSY_PATH = "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage";
 
     private static boolean showCpu = true;
+    private static boolean showGpu = true;
     private static long batteryIntervalMs = 5000;
     private static long cpuIntervalMs = 1000;
 
@@ -48,8 +50,18 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 
+    // Pre-allocated GPU Strings Table (0..100%) to eliminate runtime String allocations during polling loop
+    private static final String[] GPU_STRINGS = new String[101];
+    static {
+        for (int i = 0; i <= 100; i++) {
+            String gpuStr = (i < 10) ? ("\u2007" + i) : String.valueOf(i);
+            GPU_STRINGS[i] = " " + gpuStr + "%";
+        }
+    }
+
     private static volatile String cachedRawBatterySoc = null;
     private static volatile int cachedCpuPercentage = 0;
+    private static volatile int cachedGpuPercentage = 0;
     private static volatile String cachedDecimalPercentage = null;
 
     private static volatile boolean isScreenOn = true;
@@ -90,6 +102,9 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             if (showCpu) {
                 calculateCpuUsageZeroGc();
             }
+            if (showGpu) {
+                calculateGpuUsageZeroGc();
+            }
             updateCombinedPercentageAndNotify();
             if (isScreenOn && backgroundCpuHandler != null) {
                 backgroundCpuHandler.postDelayed(this, cpuIntervalMs);
@@ -102,6 +117,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             XSharedPreferences prefs = new XSharedPreferences("com.realme.modxposed", "settings");
             prefs.makeWorldReadable();
             showCpu = prefs.getBoolean("battery_decimal_show_cpu", true);
+            showGpu = prefs.getBoolean("battery_decimal_show_gpu", true);
             cpuIntervalMs = prefs.getLong("battery_decimal_cpu_interval", 1000L);
             batteryIntervalMs = prefs.getLong("battery_decimal_poll_interval", 5000L);
         } catch (Throwable ignored) {}
@@ -231,7 +247,13 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private synchronized void updateCombinedPercentageAndNotify() {
         if (cachedRawBatterySoc != null) {
-            String combined = showCpu ? (cachedRawBatterySoc + CPU_STRINGS[cachedCpuPercentage]) : cachedRawBatterySoc;
+            String combined = cachedRawBatterySoc;
+            if (showCpu) {
+                combined = combined + CPU_STRINGS[cachedCpuPercentage];
+            }
+            if (showGpu) {
+                combined = combined + GPU_STRINGS[cachedGpuPercentage];
+            }
             if (!combined.equals(cachedDecimalPercentage)) {
                 cachedDecimalPercentage = combined;
                 updateAllRegisteredViews(combined);
@@ -279,6 +301,41 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                         cachedCpuPercentage = Math.min(99, Math.max(0, cpu));
                     }
                 }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (fis != null) {
+                try { fis.close(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    // Zero-GC buffer for /sys/class/kgsl/kgsl-3d0/gpu_busy_percentage reading
+    private final byte[] gpuStatBuffer = new byte[64];
+
+    private void calculateGpuUsageZeroGc() {
+        if (!isScreenOn) return;
+
+        FileInputStream fis = null;
+        try {
+            fis = new FileInputStream(GPU_BUSY_PATH);
+            int bytesRead = fis.read(gpuStatBuffer);
+            if (bytesRead <= 0) return;
+
+            int val = 0;
+            boolean foundDigit = false;
+            for (int i = 0; i < bytesRead; i++) {
+                byte b = gpuStatBuffer[i];
+                if (b >= '0' && b <= '9') {
+                    val = val * 10 + (b - '0');
+                    foundDigit = true;
+                } else if (foundDigit) {
+                    break;
+                }
+            }
+
+            if (foundDigit) {
+                cachedGpuPercentage = Math.min(100, Math.max(0, val));
             }
         } catch (Exception ignored) {
         } finally {

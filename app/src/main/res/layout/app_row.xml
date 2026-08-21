@@ -22,7 +22,7 @@
             android:layout_marginEnd="20dp"
             android:layout_width="50dp"
             android:layout_height="50dp"
-            android:src="@color/common_google_signin_btn_text_light_default"/>
+            android:src="@android:color/transparent"/>
 
 
         <TextView
