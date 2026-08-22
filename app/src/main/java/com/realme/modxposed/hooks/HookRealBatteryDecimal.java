@@ -32,15 +32,19 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private static final String PROC_STAT_PATH = "/proc/stat";
     private static final String GPU_BUSY_PATH = "/sys/class/kgsl/kgsl-3d0/gpubusy";
     private static final String LOG_DIR_PATH = "/storage/emulated/0/logs";
-    private final java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyy_MM_dd", Locale.US);
+    private final java.text.SimpleDateFormat sessionDateFormat = new java.text.SimpleDateFormat("yyyy_MM_dd_HH_mm_ss", Locale.US);
+    private String currentSessionLogPath = null;
 
-    private String getDailyLogFilePath() {
-        File dir = new File(LOG_DIR_PATH);
-        if (!dir.exists()) {
-            dir.mkdirs();
+    private synchronized String getDailyLogFilePath() {
+        if (currentSessionLogPath == null) {
+            File dir = new File(LOG_DIR_PATH);
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            String sessionStr = sessionDateFormat.format(new java.util.Date());
+            currentSessionLogPath = LOG_DIR_PATH + "/system_metrics_" + sessionStr + ".bin";
         }
-        String dateStr = dateFormat.format(new java.util.Date());
-        return LOG_DIR_PATH + "/system_metrics_" + dateStr + ".bin";
+        return currentSessionLogPath;
     }
 
     private static boolean showCpu = true;
@@ -275,6 +279,9 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         if (!isScreenOn) return;
         stopBackgroundPolling(); // Prevent duplicate posts
 
+        // Populate initial battery SoC before background thread sampling starts
+        readGaugeInfoFromSysfs();
+
         if (backgroundBatteryHandler != null) {
             backgroundBatteryHandler.post(batteryPollRunnable);
         }
@@ -405,6 +412,11 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     }
 
     private synchronized void writeLogRecordToRamBuffer(long timestampMs, int batterySocHundredths, int cpuPct, int gpuPct, byte isCharging, byte isScreenOnByte) {
+        if (batterySocHundredths <= 0) {
+            // Do NOT log uninitialized 0% battery records!
+            return;
+        }
+
         if (loggerBufferPos + 16 > loggerRamBuffer.length) {
             flushRamBufferToDisk();
         }

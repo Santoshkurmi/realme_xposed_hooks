@@ -1,6 +1,7 @@
 package com.realme.modxposed.ui.screens
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,26 +23,40 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.realme.modxposed.analytics.DailyTelemetrySummary
+import com.realme.modxposed.analytics.TelemetryAnalyticsScreen
+import com.realme.modxposed.analytics.TelemetryLogParser
 import com.realme.modxposed.model.HookItem
 import com.realme.modxposed.model.HookRegistry
 import com.realme.modxposed.model.TargetApp
 import com.realme.modxposed.prefs.PreferencesManager
-import kotlin.math.roundToLong
-
-import androidx.activity.compose.BackHandler
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.realme.modxposed.utils.RootUtils
+import java.io.File
+import kotlin.math.roundToLong
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScreen() {
     val context = LocalContext.current
     var selectedApp by remember { mutableStateOf<TargetApp?>(null) }
+    var selectedLogSummary by remember { mutableStateOf<DailyTelemetrySummary?>(null) }
     var showMenu by remember { mutableStateOf(false) }
 
-    // Intercept system Back button / gesture when viewing App Detail Screen
-    BackHandler(enabled = selectedApp != null) {
-        selectedApp = null
+    // Intercept system Back button / gesture
+    BackHandler(enabled = selectedApp != null || selectedLogSummary != null) {
+        if (selectedLogSummary != null) {
+            selectedLogSummary = null
+        } else {
+            selectedApp = null
+        }
+    }
+
+    if (selectedLogSummary != null) {
+        TelemetryAnalyticsScreen(
+            summary = selectedLogSummary!!,
+            onBack = { selectedLogSummary = null }
+        )
+        return
     }
 
     Scaffold(
@@ -54,7 +70,7 @@ fun MainAppScreen() {
                             fontSize = 20.sp
                         )
                         Text(
-                            text = if (selectedApp != null) selectedApp!!.packageName else "Xposed Hook Controller",
+                            text = if (selectedApp != null) selectedApp!!.packageName else "Xposed Hook Controller & Analytics",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -124,7 +140,8 @@ fun MainAppScreen() {
         ) { app ->
             if (app == null) {
                 AppListOverviewScreen(
-                    onSelectApp = { selectedApp = it }
+                    onSelectApp = { selectedApp = it },
+                    onSelectLogSummary = { selectedLogSummary = it }
                 )
             } else {
                 AppDetailScreen(
@@ -136,11 +153,25 @@ fun MainAppScreen() {
 }
 
 @Composable
-fun AppListOverviewScreen(onSelectApp: (TargetApp) -> Unit) {
+fun AppListOverviewScreen(
+    onSelectApp: (TargetApp) -> Unit,
+    onSelectLogSummary: (DailyTelemetrySummary) -> Unit
+) {
+    val context = LocalContext.current
+    val logFiles = remember { TelemetryLogParser.listLogFiles() }
+    val hasStoragePermission = remember(context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.os.Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+    }
+
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Reboot Notice Banner Card
         item {
             Card(
                 colors = CardDefaults.cardColors(
@@ -176,9 +207,59 @@ fun AppListOverviewScreen(onSelectApp: (TargetApp) -> Unit) {
             }
         }
 
+        if (!hasStoragePermission) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            try {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                    data = android.net.Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                try {
+                                    val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                    context.startActivity(intent)
+                                } catch (ignored: Exception) {}
+                            }
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderSpecial,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "All Files Access Required",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = "Tap here to grant All Files Storage Permission to read /sdcard/logs/",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 1: System Telemetry Logs Header & Cards
         item {
             Text(
-                text = "Target Applications (${HookRegistry.targetApps.size})",
+                text = "System Telemetry Logs (${logFiles.size} Days Logged)",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -186,10 +267,116 @@ fun AppListOverviewScreen(onSelectApp: (TargetApp) -> Unit) {
             )
         }
 
+        if (logFiles.isEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Analytics, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "No log files found in /sdcard/logs/. Enable the Binary System Telemetry Logger in SystemUI hook settings to start recording metrics.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            items(logFiles) { file ->
+                TelemetryLogFileCard(
+                    file = file,
+                    onClick = {
+                        val summary = TelemetryLogParser.parseLogFile(file)
+                        if (summary != null) {
+                            onSelectLogSummary(summary)
+                        }
+                    }
+                )
+            }
+        }
+
+        // Section 2: Target Applications Header & List
+        item {
+            Text(
+                text = "Target Applications (${HookRegistry.targetApps.size})",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+            )
+        }
+
         items(HookRegistry.targetApps) { app ->
             TargetAppCard(
                 app = app,
                 onClick = { onSelectApp(app) }
+            )
+        }
+    }
+}
+
+@Composable
+fun TelemetryLogFileCard(file: File, onClick: () -> Unit) {
+    val dateStr = remember(file) { TelemetryLogParser.extractDateFromFileName(file.name) }
+    val sizeKb = remember(file) { file.length() / 1024 }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF00E676).copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Assessment,
+                    contentDescription = null,
+                    tint = Color(0xFF00E676),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Log Date: $dateStr",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "${file.name} • ${sizeKb} KB",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Open Analytics",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
