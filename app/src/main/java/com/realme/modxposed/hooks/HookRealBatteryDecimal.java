@@ -12,6 +12,8 @@ import android.widget.TextView;
 
 import com.realme.modxposed.IXposedHookLoadPackage;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.RandomAccessFile;
 import java.util.Collections;
 import java.util.HashSet;
@@ -29,9 +31,22 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private static final String GAUGE_INFO_PATH = "/sys/devices/virtual/oplus_chg/battery/gauge_info";
     private static final String PROC_STAT_PATH = "/proc/stat";
     private static final String GPU_BUSY_PATH = "/sys/class/kgsl/kgsl-3d0/gpubusy";
+    private static final String LOG_DIR_PATH = "/storage/emulated/0/logs";
+    private final java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyy_MM_dd", Locale.US);
+
+    private String getDailyLogFilePath() {
+        File dir = new File(LOG_DIR_PATH);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        String dateStr = dateFormat.format(new java.util.Date());
+        return LOG_DIR_PATH + "/system_metrics_" + dateStr + ".bin";
+    }
 
     private static boolean showCpu = true;
     private static boolean showGpu = true;
+    private static boolean enableLogger = false;
+    private static long loggerFlushIntervalSec = 60L;
     private static long batteryIntervalMs = 5000;
     private static long cpuIntervalMs = 1000;
 
@@ -59,6 +74,8 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     }
 
     private static volatile String cachedRawBatterySoc = null;
+    private static volatile short cachedBatterySocHundredths = 0;
+    private static volatile byte cachedIsCharging = 0; // 0 = Discharging, 1 = Charging, 2 = Full
     private static volatile int cachedCpuPercentage = 0;
     private static volatile int cachedGpuPercentage = 0;
     private static volatile String cachedDecimalPercentage = null;
@@ -83,6 +100,11 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private final byte[] procStatBuffer = new byte[256];
     private final byte[] gpuStatBuffer = new byte[64];
     private final int[] parsePos = new int[1];
+
+    // Pre-allocated Zero-GC binary logger buffer (300 records max = 4800 bytes)
+    private final byte[] loggerRamBuffer = new byte[4800];
+    private int loggerBufferPos = 0;
+    private long lastFlushTimeMs = 0;
 
     // Pre-allocated permanent Runnable references to avoid GC heap allocations on every poll cycle
     private final Runnable batteryPollRunnable = new Runnable() {
@@ -111,6 +133,15 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 calculateGpuUsageZeroGc();
             }
             updateCombinedPercentageAndNotify();
+
+            if (enableLogger) {
+                long now = System.currentTimeMillis();
+                writeLogRecordToRamBuffer(now, cachedBatterySocHundredths, cachedCpuPercentage, cachedGpuPercentage, cachedIsCharging, (byte) 1);
+                if (now - lastFlushTimeMs >= loggerFlushIntervalSec * 1000L) {
+                    flushRamBufferToDisk();
+                }
+            }
+
             if (isScreenOn && backgroundCpuHandler != null) {
                 backgroundCpuHandler.postDelayed(this, cpuIntervalMs);
             }
@@ -123,6 +154,8 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             prefs.makeWorldReadable();
             showCpu = prefs.getBoolean("battery_decimal_show_cpu", true);
             showGpu = prefs.getBoolean("battery_decimal_show_gpu", true);
+            enableLogger = prefs.getBoolean("battery_decimal_enable_logger", false);
+            loggerFlushIntervalSec = prefs.getLong("battery_decimal_logger_flush_interval", 60L);
             cpuIntervalMs = prefs.getLong("battery_decimal_cpu_interval", 1000L);
             batteryIntervalMs = prefs.getLong("battery_decimal_poll_interval", 5000L);
         } catch (Throwable ignored) {}
@@ -206,13 +239,23 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                     IntentFilter filter = new IntentFilter();
                     filter.addAction(Intent.ACTION_SCREEN_ON);
                     filter.addAction(Intent.ACTION_SCREEN_OFF);
+                    filter.addAction(Intent.ACTION_BATTERY_CHANGED);
 
                     appContext.registerReceiver(new BroadcastReceiver() {
                         @Override
                         public void onReceive(Context ctx, Intent intent) {
                             if (intent == null || intent.getAction() == null) return;
                             String action = intent.getAction();
-                            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                            if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
+                                int status = intent.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+                                cachedIsCharging = (byte) ((status == android.os.BatteryManager.BATTERY_STATUS_CHARGING) ? 1 :
+                                                   (status == android.os.BatteryManager.BATTERY_STATUS_FULL) ? 2 : 0);
+                            } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                                if (enableLogger) {
+                                    long now = System.currentTimeMillis();
+                                    writeLogRecordToRamBuffer(now, cachedBatterySocHundredths, cachedCpuPercentage, cachedGpuPercentage, cachedIsCharging, (byte) 0);
+                                    flushRamBufferToDisk();
+                                }
                                 isScreenOn = false;
                                 stopBackgroundPolling();
                             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
@@ -268,6 +311,9 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             }
             if (showGpu) {
                 combined = combined + GPU_STRINGS[cachedGpuPercentage];
+            }
+            if (enableLogger) {
+                combined = combined + ".";
             }
             if (!combined.equals(cachedDecimalPercentage)) {
                 cachedDecimalPercentage = combined;
@@ -355,6 +401,63 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         } catch (Throwable e) {
             closeRaf(gpuRaf);
             gpuRaf = null;
+        }
+    }
+
+    private synchronized void writeLogRecordToRamBuffer(long timestampMs, int batterySocHundredths, int cpuPct, int gpuPct, byte isCharging, byte isScreenOnByte) {
+        if (loggerBufferPos + 16 > loggerRamBuffer.length) {
+            flushRamBufferToDisk();
+        }
+
+        int pos = loggerBufferPos;
+        // Bytes 0..7: timestampMs (long)
+        loggerRamBuffer[pos]     = (byte) (timestampMs >>> 56);
+        loggerRamBuffer[pos + 1] = (byte) (timestampMs >>> 48);
+        loggerRamBuffer[pos + 2] = (byte) (timestampMs >>> 40);
+        loggerRamBuffer[pos + 3] = (byte) (timestampMs >>> 32);
+        loggerRamBuffer[pos + 4] = (byte) (timestampMs >>> 24);
+        loggerRamBuffer[pos + 5] = (byte) (timestampMs >>> 16);
+        loggerRamBuffer[pos + 6] = (byte) (timestampMs >>> 8);
+        loggerRamBuffer[pos + 7] = (byte) (timestampMs);
+
+        // Bytes 8..9: batterySocHundredths (short)
+        loggerRamBuffer[pos + 8] = (byte) (batterySocHundredths >>> 8);
+        loggerRamBuffer[pos + 9] = (byte) (batterySocHundredths);
+
+        // Byte 10: cpuPct
+        loggerRamBuffer[pos + 10] = (byte) cpuPct;
+
+        // Byte 11: gpuPct
+        loggerRamBuffer[pos + 11] = (byte) gpuPct;
+
+        // Byte 12: isCharging
+        loggerRamBuffer[pos + 12] = isCharging;
+
+        // Byte 13: isScreenOnByte
+        loggerRamBuffer[pos + 13] = isScreenOnByte;
+
+        // Bytes 14..15: reserved (0x0000)
+        loggerRamBuffer[pos + 14] = 0;
+        loggerRamBuffer[pos + 15] = 0;
+
+        loggerBufferPos += 16;
+    }
+
+    private synchronized void flushRamBufferToDisk() {
+        if (loggerBufferPos == 0) return;
+        FileOutputStream fos = null;
+        try {
+            String logFilePath = getDailyLogFilePath();
+            fos = new FileOutputStream(logFilePath, true);
+            fos.write(loggerRamBuffer, 0, loggerBufferPos);
+            fos.flush();
+        } catch (Throwable ignored) {
+        } finally {
+            if (fos != null) {
+                try { fos.close(); } catch (Throwable ignored) {}
+            }
+            loggerBufferPos = 0;
+            lastFlushTimeMs = System.currentTimeMillis();
         }
     }
 
@@ -494,6 +597,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
             double decimalSoc = (rem * 100.0) / full;
             if (decimalSoc > 100.0) decimalSoc = 100.0;
+            cachedBatterySocHundredths = (short) Math.round(decimalSoc * 100.0);
             return String.format(Locale.US, "%.2f", decimalSoc);
         } catch (Throwable e) {
             closeRaf(batteryRaf);

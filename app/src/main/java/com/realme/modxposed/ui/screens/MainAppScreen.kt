@@ -198,7 +198,7 @@ fun AppListOverviewScreen(onSelectApp: (TargetApp) -> Unit) {
 @Composable
 fun TargetAppCard(app: TargetApp, onClick: () -> Unit) {
     val context = LocalContext.current
-    var isAppEnabled by remember {
+    var isAppEnabled by remember(app.packageName) {
         mutableStateOf(PreferencesManager.isAppEnabled(context, app.packageName))
     }
 
@@ -272,7 +272,7 @@ fun TargetAppCard(app: TargetApp, onClick: () -> Unit) {
 @Composable
 fun AppDetailScreen(app: TargetApp) {
     val context = LocalContext.current
-    var isAppEnabled by remember {
+    var isAppEnabled by remember(app.packageName) {
         mutableStateOf(PreferencesManager.isAppEnabled(context, app.packageName))
     }
 
@@ -339,7 +339,7 @@ fun AppDetailScreen(app: TargetApp) {
 @Composable
 fun HookItemCard(hook: HookItem, isParentAppEnabled: Boolean) {
     val context = LocalContext.current
-    var isHookEnabled by remember {
+    var isHookEnabled by remember(hook.id) {
         mutableStateOf(PreferencesManager.isHookEnabled(context, hook.id))
     }
 
@@ -398,6 +398,12 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
     }
     var showGpu by remember {
         mutableStateOf(PreferencesManager.getBatteryShowGpu(context))
+    }
+    var enableLogger by remember {
+        mutableStateOf(PreferencesManager.getBatteryEnableLogger(context))
+    }
+    var loggerFlushInterval by remember {
+        mutableStateOf(PreferencesManager.getBatteryLoggerFlushInterval(context).toFloat())
     }
     var cpuInterval by remember {
         mutableStateOf(PreferencesManager.getBatteryCpuInterval(context).toFloat())
@@ -466,6 +472,64 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
                     PreferencesManager.setBatteryShowGpu(context, checked)
                 }
             )
+        }
+
+        // Enable System Telemetry Binary Logger Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Binary System Telemetry Logger",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (enableLogger) "Appends 16-byte records to /sdcard/logs/system_metrics_YYYY_MM_DD.bin" else "Binary telemetry logging disabled",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Switch(
+                checked = enableLogger,
+                onCheckedChange = { checked ->
+                    enableLogger = checked
+                    PreferencesManager.setBatteryEnableLogger(context, checked)
+                }
+            )
+        }
+
+        // Telemetry Logger RAM Flush Interval Slider
+        if (enableLogger) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "RAM-to-Disk Flush Interval",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${loggerFlushInterval.roundToLong()} s",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+                Slider(
+                    value = loggerFlushInterval,
+                    onValueChange = { loggerFlushInterval = it },
+                    onValueChangeFinished = {
+                        PreferencesManager.setBatteryLoggerFlushInterval(context, loggerFlushInterval.roundToLong())
+                    },
+                    valueRange = 10f..300f,
+                    steps = 28
+                )
+            }
         }
 
         // CPU & GPU Polling Interval Slider

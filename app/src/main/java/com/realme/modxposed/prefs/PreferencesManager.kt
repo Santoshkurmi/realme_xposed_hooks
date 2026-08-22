@@ -2,12 +2,15 @@ package com.realme.modxposed.prefs
 
 import android.content.Context
 import android.content.SharedPreferences
+import java.io.File
 
 object PreferencesManager {
     const val PREF_NAME = "settings"
 
     const val KEY_BATTERY_SHOW_CPU = "battery_decimal_show_cpu"
     const val KEY_BATTERY_SHOW_GPU = "battery_decimal_show_gpu"
+    const val KEY_BATTERY_ENABLE_LOGGER = "battery_decimal_enable_logger"
+    const val KEY_BATTERY_LOGGER_FLUSH_INTERVAL = "battery_decimal_logger_flush_interval"
     const val KEY_BATTERY_CPU_INTERVAL = "battery_decimal_cpu_interval"
     const val KEY_BATTERY_POLL_INTERVAL = "battery_decimal_poll_interval"
 
@@ -15,12 +18,28 @@ object PreferencesManager {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
 
+    private fun makeWorldReadable(context: Context) {
+        try {
+            val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
+            if (prefsDir.exists()) {
+                prefsDir.setReadable(true, false)
+                prefsDir.setExecutable(true, false)
+                val prefsFile = File(prefsDir, "$PREF_NAME.xml")
+                if (prefsFile.exists()) {
+                    prefsFile.setReadable(true, false)
+                    prefsFile.setWritable(true, false)
+                }
+            }
+        } catch (ignored: Throwable) {}
+    }
+
     fun isAppEnabled(context: Context, packageName: String): Boolean {
         return getPrefs(context).getBoolean("app_enabled_$packageName", true)
     }
 
     fun setAppEnabled(context: Context, packageName: String, enabled: Boolean) {
-        getPrefs(context).edit().putBoolean("app_enabled_$packageName", enabled).apply()
+        getPrefs(context).edit().putBoolean("app_enabled_$packageName", enabled).commit()
+        makeWorldReadable(context)
     }
 
     fun isHookEnabled(context: Context, hookId: String): Boolean {
@@ -28,7 +47,8 @@ object PreferencesManager {
     }
 
     fun setHookEnabled(context: Context, hookId: String, enabled: Boolean) {
-        getPrefs(context).edit().putBoolean("hook_enabled_$hookId", enabled).apply()
+        getPrefs(context).edit().putBoolean("hook_enabled_$hookId", enabled).commit()
+        makeWorldReadable(context)
     }
 
     fun getBatteryShowCpu(context: Context): Boolean {
@@ -36,7 +56,8 @@ object PreferencesManager {
     }
 
     fun setBatteryShowCpu(context: Context, show: Boolean) {
-        getPrefs(context).edit().putBoolean(KEY_BATTERY_SHOW_CPU, show).apply()
+        getPrefs(context).edit().putBoolean(KEY_BATTERY_SHOW_CPU, show).commit()
+        makeWorldReadable(context)
     }
 
     fun getBatteryShowGpu(context: Context): Boolean {
@@ -44,7 +65,26 @@ object PreferencesManager {
     }
 
     fun setBatteryShowGpu(context: Context, show: Boolean) {
-        getPrefs(context).edit().putBoolean(KEY_BATTERY_SHOW_GPU, show).apply()
+        getPrefs(context).edit().putBoolean(KEY_BATTERY_SHOW_GPU, show).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getBatteryEnableLogger(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_BATTERY_ENABLE_LOGGER, false)
+    }
+
+    fun setBatteryEnableLogger(context: Context, enable: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BATTERY_ENABLE_LOGGER, enable).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getBatteryLoggerFlushInterval(context: Context): Long {
+        return getPrefs(context).getLong(KEY_BATTERY_LOGGER_FLUSH_INTERVAL, 60L)
+    }
+
+    fun setBatteryLoggerFlushInterval(context: Context, intervalSeconds: Long) {
+        getPrefs(context).edit().putLong(KEY_BATTERY_LOGGER_FLUSH_INTERVAL, intervalSeconds).commit()
+        makeWorldReadable(context)
     }
 
     fun getBatteryCpuInterval(context: Context): Long {
@@ -52,7 +92,8 @@ object PreferencesManager {
     }
 
     fun setBatteryCpuInterval(context: Context, intervalMs: Long) {
-        getPrefs(context).edit().putLong(KEY_BATTERY_CPU_INTERVAL, intervalMs).apply()
+        getPrefs(context).edit().putLong(KEY_BATTERY_CPU_INTERVAL, intervalMs).commit()
+        makeWorldReadable(context)
     }
 
     fun getBatteryPollInterval(context: Context): Long {
@@ -60,6 +101,7 @@ object PreferencesManager {
     }
 
     fun setBatteryPollInterval(context: Context, intervalMs: Long) {
-        getPrefs(context).edit().putLong(KEY_BATTERY_POLL_INTERVAL, intervalMs).apply()
+        getPrefs(context).edit().putLong(KEY_BATTERY_POLL_INTERVAL, intervalMs).commit()
+        makeWorldReadable(context)
     }
 }
