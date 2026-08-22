@@ -9,6 +9,8 @@ object PreferencesManager {
 
     const val KEY_BATTERY_SHOW_CPU = "battery_decimal_show_cpu"
     const val KEY_BATTERY_SHOW_GPU = "battery_decimal_show_gpu"
+    const val KEY_BATTERY_SHOW_POWER = "battery_decimal_show_power"
+    const val KEY_BATTERY_SMOOTH_ESTIMATE = "battery_decimal_smooth_estimate"
     const val KEY_BATTERY_ENABLE_LOGGER = "battery_decimal_enable_logger"
     const val KEY_BATTERY_LOGGER_FLUSH_INTERVAL = "battery_decimal_logger_flush_interval"
     const val KEY_BATTERY_CPU_INTERVAL = "battery_decimal_cpu_interval"
@@ -102,6 +104,24 @@ object PreferencesManager {
 
     fun setBatteryPollInterval(context: Context, intervalMs: Long) {
         getPrefs(context).edit().putLong(KEY_BATTERY_POLL_INTERVAL, intervalMs).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getBatteryShowPower(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_BATTERY_SHOW_POWER, false)
+    }
+
+    fun setBatteryShowPower(context: Context, show: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BATTERY_SHOW_POWER, show).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getBatterySmoothEstimate(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_BATTERY_SMOOTH_ESTIMATE, false)
+    }
+
+    fun setBatterySmoothEstimate(context: Context, smooth: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BATTERY_SMOOTH_ESTIMATE, smooth).commit()
         makeWorldReadable(context)
     }
 }

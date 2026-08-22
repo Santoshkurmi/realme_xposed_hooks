@@ -32,6 +32,12 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private static final String PROC_STAT_PATH = "/proc/stat";
     private static final String GPU_BUSY_PATH = "/sys/class/kgsl/kgsl-3d0/gpubusy";
     private static final String LOG_DIR_PATH = "/storage/emulated/0/logs";
+
+    private static final byte[] KEY_08 = new byte[]{'0', 'x', '0', '8', '='};
+    private static final byte[] KEY_0C = new byte[]{'0', 'x', '0', 'c', '='};
+    private static final byte[] KEY_10 = new byte[]{'0', 'x', '1', '0', '='};
+    private static final byte[] KEY_12 = new byte[]{'0', 'x', '1', '2', '='};
+
     private final java.text.SimpleDateFormat sessionDateFormat = new java.text.SimpleDateFormat("yyyy_MM_dd_HH_mm_ss", Locale.US);
     private String currentSessionLogPath = null;
 
@@ -49,6 +55,8 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private static boolean showCpu = true;
     private static boolean showGpu = true;
+    private static boolean showPower = false;
+    private static boolean useSmoothEstimate = false;
     private static boolean enableLogger = false;
     private static long loggerFlushIntervalSec = 60L;
     private static long batteryIntervalMs = 5000;
@@ -58,7 +66,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private static final String STAT_BATTERY_VIEW_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
     private static final String HORIZONTAL_DRAWABLE_CLASS = "com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable";
 
-    // Pre-allocated CPU Strings Table (0..99) to eliminate runtime String allocations during polling loop
+    // Pre-allocated CPU Strings Table (0..99)
     private static final String[] CPU_STRINGS = new String[100];
     static {
         for (int i = 0; i < 100; i++) {
@@ -67,7 +75,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 
-    // Pre-allocated GPU Strings Table (0..100 -> max 99) to eliminate runtime String allocations during polling loop
+    // Pre-allocated GPU Strings Table (0..100 -> max 99)
     private static final String[] GPU_STRINGS = new String[101];
     static {
         for (int i = 0; i <= 100; i++) {
@@ -77,12 +85,41 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 
+    // Pre-allocated Battery Decimal Strings Table (0..10000 -> 0.00% to 100.00%)
+    private static final String[] BATTERY_DECIMAL_STRINGS = new String[10001];
+    static {
+        for (int i = 0; i <= 10000; i++) {
+            int integerPart = i / 100;
+            int fractionPart = i % 100;
+            BATTERY_DECIMAL_STRINGS[i] = String.format(Locale.US, "%d.%02d", integerPart, fractionPart);
+        }
+    }
+
+    // Pre-allocated Power Watts Strings Table (0..2000 -> 0.00 to 20.00)
+    private static final String[] POWER_WATTS_STRINGS = new String[2001];
+    static {
+        for (int i = 0; i <= 2000; i++) {
+            int integerPart = i / 100;
+            int fractionPart = i % 100;
+            POWER_WATTS_STRINGS[i] = String.format(Locale.US, "%d.%02d", integerPart, fractionPart);
+        }
+    }
+
     private static volatile String cachedRawBatterySoc = null;
     private static volatile short cachedBatterySocHundredths = 0;
     private static volatile byte cachedIsCharging = 0; // 0 = Discharging, 1 = Charging, 2 = Full
     private static volatile int cachedCpuPercentage = 0;
     private static volatile int cachedGpuPercentage = 0;
+    private static volatile String cachedPowerWattsString = null;
     private static volatile String cachedDecimalPercentage = null;
+
+    // Coulomb counter integration state
+    private int lastRemMah = -1;
+    private int lastFullMah = -1;
+    private double accumMah = 0.0;
+    private int prevCurrentMa = 0;
+    private boolean hasPrevSample = false;
+    private long lastGaugeSampleTimeMs = 0;
 
     private static volatile boolean isScreenOn = true;
     private static volatile boolean isReceiverRegistered = false;
@@ -95,7 +132,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private long prevCpuIdle = 0;
     private boolean isFirstCpuSample = true;
 
-    // Persistent Zero-GC RandomAccessFile instances to eliminate open/close syscall overhead per tick
+    // Persistent Zero-GC RandomAccessFile instances
     private RandomAccessFile batteryRaf = null;
     private RandomAccessFile cpuRaf = null;
     private RandomAccessFile gpuRaf = null;
@@ -110,7 +147,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
     private int loggerBufferPos = 0;
     private long lastFlushTimeMs = 0;
 
-    // Pre-allocated permanent Runnable references to avoid GC heap allocations on every poll cycle
+    // Pre-allocated permanent Runnable references
     private final Runnable batteryPollRunnable = new Runnable() {
         @Override
         public void run() {
@@ -158,6 +195,8 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             prefs.makeWorldReadable();
             showCpu = prefs.getBoolean("battery_decimal_show_cpu", true);
             showGpu = prefs.getBoolean("battery_decimal_show_gpu", true);
+            showPower = prefs.getBoolean("battery_decimal_show_power", false);
+            useSmoothEstimate = prefs.getBoolean("battery_decimal_smooth_estimate", false);
             enableLogger = prefs.getBoolean("battery_decimal_enable_logger", false);
             loggerFlushIntervalSec = prefs.getLong("battery_decimal_logger_flush_interval", 60L);
             cpuIntervalMs = prefs.getLong("battery_decimal_cpu_interval", 1000L);
@@ -186,7 +225,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         try {
             Class<?> clazz = XposedHelpers.findClass(STAT_BATTERY_VIEW_CLASS, lpparam.classLoader);
 
-            // Hook onAttachedToWindow
             XposedHelpers.findAndHookMethod(clazz, "onAttachedToWindow", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
@@ -196,7 +234,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 }
             });
 
-            // Hook onDetachedFromWindow
             XposedHelpers.findAndHookMethod(clazz, "onDetachedFromWindow", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
@@ -205,7 +242,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 }
             });
 
-            // Hook dispatchDraw (Charger plug/unplug flicker prevention)
+            // Hook dispatchDraw: Instantly intercepts charger plug/unplug integer resets!
             XposedHelpers.findAndHookMethod(clazz, "dispatchDraw", android.graphics.Canvas.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
@@ -213,7 +250,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                     updateBatteryTextViewsInstant(view);
                 }
             });
-
         } catch (Throwable ignored) {}
 
         // Target 2: HorizontalBatteryContentDrawable
@@ -252,15 +288,19 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                             String action = intent.getAction();
                             if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                                 int status = intent.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
-                                cachedIsCharging = (byte) ((status == android.os.BatteryManager.BATTERY_STATUS_CHARGING) ? 1 :
-                                                   (status == android.os.BatteryManager.BATTERY_STATUS_FULL) ? 2 : 0);
+                                if (status == android.os.BatteryManager.BATTERY_STATUS_CHARGING) {
+                                    cachedIsCharging = 1;
+                                } else if (status == android.os.BatteryManager.BATTERY_STATUS_FULL) {
+                                    cachedIsCharging = 2;
+                                } else {
+                                    cachedIsCharging = 0;
+                                }
                             } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                                isScreenOn = false;
                                 if (enableLogger) {
-                                    long now = System.currentTimeMillis();
-                                    writeLogRecordToRamBuffer(now, cachedBatterySocHundredths, cachedCpuPercentage, cachedGpuPercentage, cachedIsCharging, (byte) 0);
+                                    writeLogRecordToRamBuffer(System.currentTimeMillis(), cachedBatterySocHundredths, cachedCpuPercentage, cachedGpuPercentage, cachedIsCharging, (byte) 0);
                                     flushRamBufferToDisk();
                                 }
-                                isScreenOn = false;
                                 stopBackgroundPolling();
                             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                                 isScreenOn = true;
@@ -279,7 +319,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         if (!isScreenOn) return;
         stopBackgroundPolling(); // Prevent duplicate posts
 
-        // Populate initial battery SoC before background thread sampling starts
         readGaugeInfoFromSysfs();
 
         if (backgroundBatteryHandler != null) {
@@ -319,6 +358,9 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             if (showGpu) {
                 combined = combined + GPU_STRINGS[cachedGpuPercentage];
             }
+            if (showPower && cachedPowerWattsString != null) {
+                combined = combined + " " + cachedPowerWattsString;
+            }
             if (enableLogger) {
                 combined = combined + ".";
             }
@@ -351,26 +393,23 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 long softirq = parseNextLong(procStatBuffer, bytesRead, parsePos);
                 long steal = parseNextLong(procStatBuffer, bytesRead, parsePos);
 
-                long currentIdle = idle + iowait;
-                long currentTotal = user + nice + system + idle + iowait + irq + softirq + steal;
+                long totalCpu = user + nice + system + idle + iowait + irq + softirq + steal;
+                long idleCpu = idle + iowait;
 
-                if (isFirstCpuSample) {
-                    prevCpuTotal = currentTotal;
-                    prevCpuIdle = currentIdle;
-                    isFirstCpuSample = false;
-                    cachedCpuPercentage = 0;
-                } else {
-                    long totalDiff = currentTotal - prevCpuTotal;
-                    long idleDiff = currentIdle - prevCpuIdle;
-                    prevCpuTotal = currentTotal;
-                    prevCpuIdle = currentIdle;
+                if (!isFirstCpuSample) {
+                    long totalDiff = totalCpu - prevCpuTotal;
+                    long idleDiff = idleCpu - prevCpuIdle;
 
                     if (totalDiff > 0) {
-                        long busyDiff = totalDiff - idleDiff;
-                        int cpu = (int) Math.round((busyDiff * 100.0) / totalDiff);
+                        int cpu = (int) Math.round(((totalDiff - idleDiff) * 100.0) / totalDiff);
                         cachedCpuPercentage = Math.min(99, Math.max(0, cpu));
                     }
+                } else {
+                    isFirstCpuSample = false;
                 }
+
+                prevCpuTotal = totalCpu;
+                prevCpuIdle = idleCpu;
             }
         } catch (Throwable e) {
             closeRaf(cpuRaf);
@@ -413,7 +452,6 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
     private synchronized void writeLogRecordToRamBuffer(long timestampMs, int batterySocHundredths, int cpuPct, int gpuPct, byte isCharging, byte isScreenOnByte) {
         if (batterySocHundredths <= 0) {
-            // Do NOT log uninitialized 0% battery records!
             return;
         }
 
@@ -422,8 +460,9 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
 
         int pos = loggerBufferPos;
+
         // Bytes 0..7: timestampMs (long)
-        loggerRamBuffer[pos]     = (byte) (timestampMs >>> 56);
+        loggerRamBuffer[pos] = (byte) (timestampMs >>> 56);
         loggerRamBuffer[pos + 1] = (byte) (timestampMs >>> 48);
         loggerRamBuffer[pos + 2] = (byte) (timestampMs >>> 40);
         loggerRamBuffer[pos + 3] = (byte) (timestampMs >>> 32);
@@ -583,6 +622,42 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 
+    private static int parseHexShortAtKey(byte[] buffer, int limit, byte[] key) {
+        int keyLen = key.length;
+        for (int i = 0; i <= limit - keyLen - 5; i++) {
+            boolean match = true;
+            for (int j = 0; j < keyLen; j++) {
+                if (buffer[i + j] != key[j]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                int p = i + keyLen;
+                int b1 = parseHexByte(buffer, p);
+                int b2 = parseHexByte(buffer, p + 3);
+                if (b1 != -1 && b2 != -1) {
+                    return (b2 << 8) | b1;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static int parseHexByte(byte[] buffer, int pos) {
+        int h1 = hexCharToInt(buffer[pos]);
+        int h2 = hexCharToInt(buffer[pos + 1]);
+        if (h1 == -1 || h2 == -1) return -1;
+        return (h1 << 4) | h2;
+    }
+
+    private static int hexCharToInt(byte b) {
+        if (b >= '0' && b <= '9') return b - '0';
+        if (b >= 'a' && b <= 'f') return b - 'a' + 10;
+        if (b >= 'A' && b <= 'F') return b - 'A' + 10;
+        return -1;
+    }
+
     private String readGaugeInfoFromSysfs() {
         try {
             if (batteryRaf == null) {
@@ -592,25 +667,59 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             int bytesRead = batteryRaf.read(batteryStatBuffer);
             if (bytesRead <= 0) return null;
 
-            String info = new String(batteryStatBuffer, 0, bytesRead);
-            int idx10 = info.indexOf("0x10=");
-            int idx12 = info.indexOf("0x12=");
-            if (idx10 == -1 || idx12 == -1) return null;
+            int rawVoltage = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_08);
+            int rawCurrentUnsigned = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_0C);
+            int rem = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_10);
+            int full = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_12);
 
-            String hex10_byte1 = info.substring(idx10 + 5, idx10 + 7);
-            String hex10_byte2 = info.substring(idx10 + 8, idx10 + 10);
-            int rem = Integer.parseInt(hex10_byte2 + hex10_byte1, 16);
+            if (full <= 0 || rem < 0) return null;
 
-            String hex12_byte1 = info.substring(idx12 + 5, idx12 + 7);
-            String hex12_byte2 = info.substring(idx12 + 8, idx12 + 10);
-            int full = Integer.parseInt(hex12_byte2 + hex12_byte1, 16);
+            short currentMa = (short) rawCurrentUnsigned;
 
-            if (full == 0) return null;
+            if (rawVoltage > 0) {
+                int powerHundredths = (int) Math.round((rawVoltage * (double) Math.abs(currentMa)) / 10000.0);
+                powerHundredths = Math.min(2000, Math.max(0, powerHundredths));
+                cachedPowerWattsString = POWER_WATTS_STRINGS[powerHundredths];
+            } else {
+                cachedPowerWattsString = null;
+            }
 
-            double decimalSoc = (rem * 100.0) / full;
-            if (decimalSoc > 100.0) decimalSoc = 100.0;
-            cachedBatterySocHundredths = (short) Math.round(decimalSoc * 100.0);
-            return String.format(Locale.US, "%.2f", decimalSoc);
+            long nowMs = System.currentTimeMillis();
+
+            if (rem != lastRemMah || full != lastFullMah) {
+                accumMah = 0.0;
+                lastRemMah = rem;
+                lastFullMah = full;
+                hasPrevSample = false;
+            }
+
+            if (hasPrevSample && lastGaugeSampleTimeMs > 0) {
+                double deltaSeconds = (nowMs - lastGaugeSampleTimeMs) / 1000.0;
+                if (deltaSeconds > 0 && deltaSeconds < 30.0) {
+                    double avgCurrentMa = (prevCurrentMa + currentMa) / 2.0;
+                    accumMah += (avgCurrentMa * deltaSeconds) / 3600.0;
+                }
+            }
+            lastGaugeSampleTimeMs = nowMs;
+            prevCurrentMa = currentMa;
+            hasPrevSample = true;
+
+            double decimalSoc;
+            if (useSmoothEstimate) {
+                double estMah = rem + accumMah;
+                if (estMah < 0) estMah = 0;
+                decimalSoc = (estMah * 100.0) / full;
+                if (decimalSoc > 100.0) decimalSoc = 100.0;
+                if (decimalSoc < 0.0) decimalSoc = 0.0;
+            } else {
+                decimalSoc = (rem * 100.0) / full;
+                if (decimalSoc > 100.0) decimalSoc = 100.0;
+            }
+
+            int hundredths = (int) Math.round(decimalSoc * 100.0);
+            hundredths = Math.min(10000, Math.max(0, hundredths));
+            cachedBatterySocHundredths = (short) hundredths;
+            return BATTERY_DECIMAL_STRINGS[hundredths];
         } catch (Throwable e) {
             closeRaf(batteryRaf);
             batteryRaf = null;

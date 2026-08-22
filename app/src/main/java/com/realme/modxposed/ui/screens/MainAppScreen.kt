@@ -586,6 +586,12 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
     var showGpu by remember {
         mutableStateOf(PreferencesManager.getBatteryShowGpu(context))
     }
+    var showPower by remember {
+        mutableStateOf(PreferencesManager.getBatteryShowPower(context))
+    }
+    var smoothEstimate by remember {
+        mutableStateOf(PreferencesManager.getBatterySmoothEstimate(context))
+    }
     var enableLogger by remember {
         mutableStateOf(PreferencesManager.getBatteryEnableLogger(context))
     }
@@ -657,6 +663,60 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
                 onCheckedChange = { checked ->
                     showGpu = checked
                     PreferencesManager.setBatteryShowGpu(context, checked)
+                }
+            )
+        }
+
+        // Display System Power Usage (W) Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Display Power Usage (W)",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (showPower) "Shows live power draw in Watts (e.g. 2.15) calculated from sysfs" else "Power usage hidden",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Switch(
+                checked = showPower,
+                onCheckedChange = { checked ->
+                    showPower = checked
+                    PreferencesManager.setBatteryShowPower(context, checked)
+                }
+            )
+        }
+
+        // High-Precision Smooth Battery Decimal Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "High-Precision Smooth Battery Decimal",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (smoothEstimate) "Interpolates battery decimal via live current integration between raw gauge steps" else "Using raw gauge step battery percentage",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Switch(
+                checked = smoothEstimate,
+                onCheckedChange = { checked ->
+                    smoothEstimate = checked
+                    PreferencesManager.setBatterySmoothEstimate(context, checked)
                 }
             )
         }
