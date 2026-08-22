@@ -546,6 +546,10 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             if ("battery_percentage_view".equals(resName)) {
                 if (!activeTextViewSet.contains(tv)) {
                     activeTextViewSet.add(tv);
+                    try {
+                        tv.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
+                        tv.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                    } catch (Throwable ignored) {}
                 }
                 applyTextToView(tv, cachedDecimalPercentage);
             }
@@ -618,12 +622,47 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         if (tv == null || targetText == null) return;
         CharSequence before = tv.getText();
         if (before == null || !before.toString().equals(targetText)) {
-            tv.setText(targetText);
+            if (before != null && before.length() == targetText.length() && before instanceof android.text.SpannableStringBuilder) {
+                android.text.SpannableStringBuilder ssb = (android.text.SpannableStringBuilder) before;
+                ssb.replace(0, ssb.length(), targetText);
+                tv.invalidate();
+            } else {
+                tv.setText(targetText, TextView.BufferType.SPANNABLE);
+            }
         }
     }
 
-    private static int parseHexShortAtKey(byte[] buffer, int limit, byte[] key) {
+    private static int cachedOffset08 = -1;
+    private static int cachedOffset0C = -1;
+    private static int cachedOffset10 = -1;
+    private static int cachedOffset12 = -1;
+
+    private static int parseHexShortAtKeyCached(byte[] buffer, int limit, byte[] key, int keyIndex) {
         int keyLen = key.length;
+        int cachedOffset = -1;
+        if (keyIndex == 0) cachedOffset = cachedOffset08;
+        else if (keyIndex == 1) cachedOffset = cachedOffset0C;
+        else if (keyIndex == 2) cachedOffset = cachedOffset10;
+        else if (keyIndex == 3) cachedOffset = cachedOffset12;
+
+        if (cachedOffset >= 0 && cachedOffset <= limit - keyLen - 5) {
+            boolean match = true;
+            for (int j = 0; j < keyLen; j++) {
+                if (buffer[cachedOffset + j] != key[j]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                int p = cachedOffset + keyLen;
+                int b1 = parseHexByte(buffer, p);
+                int b2 = parseHexByte(buffer, p + 3);
+                if (b1 != -1 && b2 != -1) {
+                    return (b2 << 8) | b1;
+                }
+            }
+        }
+
         for (int i = 0; i <= limit - keyLen - 5; i++) {
             boolean match = true;
             for (int j = 0; j < keyLen; j++) {
@@ -633,6 +672,11 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
                 }
             }
             if (match) {
+                if (keyIndex == 0) cachedOffset08 = i;
+                else if (keyIndex == 1) cachedOffset0C = i;
+                else if (keyIndex == 2) cachedOffset10 = i;
+                else if (keyIndex == 3) cachedOffset12 = i;
+
                 int p = i + keyLen;
                 int b1 = parseHexByte(buffer, p);
                 int b2 = parseHexByte(buffer, p + 3);
@@ -667,10 +711,10 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
             int bytesRead = batteryRaf.read(batteryStatBuffer);
             if (bytesRead <= 0) return null;
 
-            int rawVoltage = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_08);
-            int rawCurrentUnsigned = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_0C);
-            int rem = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_10);
-            int full = parseHexShortAtKey(batteryStatBuffer, bytesRead, KEY_12);
+            int rawVoltage = parseHexShortAtKeyCached(batteryStatBuffer, bytesRead, KEY_08, 0);
+            int rawCurrentUnsigned = parseHexShortAtKeyCached(batteryStatBuffer, bytesRead, KEY_0C, 1);
+            int rem = parseHexShortAtKeyCached(batteryStatBuffer, bytesRead, KEY_10, 2);
+            int full = parseHexShortAtKeyCached(batteryStatBuffer, bytesRead, KEY_12, 3);
 
             if (full <= 0 || rem < 0) return null;
 
