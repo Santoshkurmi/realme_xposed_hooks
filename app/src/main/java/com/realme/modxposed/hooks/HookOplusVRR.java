@@ -102,22 +102,25 @@ public class HookOplusVRR implements IXposedHookLoadPackage {
             if (coreClass != null) {
                 XposedHelpers.findAndHookMethod(coreClass, "getFinalDisplayRefreshRateIdLocked", boolean.class, XC_MethodReplacement.returnConstant(REFRESH_RATE_ID_120HZ));
                 XposedHelpers.findAndHookMethod(coreClass, "getMEMCRefreshRate", XC_MethodReplacement.returnConstant(120.0f));
+                XposedHelpers.findAndHookMethod(coreClass, "getPerfectRefreshRate", android.util.SparseArray.class, int.class, boolean.class, XC_MethodReplacement.returnConstant(120.0f));
+                XposedHelpers.findAndHookMethod(coreClass, "getPriorityRefreshRateLocked", int.class, boolean.class, XC_MethodReplacement.returnConstant(120.0f));
                 log("Successfully hooked OplusRefreshRateCore");
             }
         } catch (Throwable t) {
             log("Failed hooking OplusRefreshRateCore", t);
         }
 
-        // 6. Disable IME keyboard & low-freq video refresh rate drops in OplusRefreshRateConfigs
+        // 6. Disable IME keyboard, camera override & low-freq video refresh rate drops in OplusRefreshRateConfigs
         try {
             Class<?> configsClass = XposedHelpers.findClassIfExists("com.android.server.wm.OplusRefreshRateConfigs", classLoader);
             if (configsClass != null) {
                 XposedHelpers.findAndHookMethod(configsClass, "allowInputMethodLowRate", XC_MethodReplacement.returnConstant(false));
                 XposedHelpers.findAndHookMethod(configsClass, "allowVoiceSceneLowRate", XC_MethodReplacement.returnConstant(false));
                 XposedHelpers.findAndHookMethod(configsClass, "isLowRateDisplay", String.class, XC_MethodReplacement.returnConstant(false));
+                XposedHelpers.findAndHookMethod(configsClass, "isDisableCameraOverride", String.class, XC_MethodReplacement.returnConstant(false));
                 XposedHelpers.findAndHookMethod(configsClass, "enableNearFlashAppLowRate", XC_MethodReplacement.returnConstant(false));
                 XposedHelpers.findAndHookMethod(configsClass, "getDefaultRateId", int.class, XC_MethodReplacement.returnConstant(REFRESH_RATE_ID_120HZ));
-                log("Successfully hooked OplusRefreshRateConfigs (IME & Video 60Hz disable)");
+                log("Successfully hooked OplusRefreshRateConfigs (IME, Camera & Video 60Hz disable)");
             }
         } catch (Throwable t) {
             log("Failed hooking OplusRefreshRateConfigs", t);
