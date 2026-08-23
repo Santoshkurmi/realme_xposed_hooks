@@ -48,14 +48,15 @@ object HookRegistry {
         TargetApp(
             packageName = "com.android.launcher",
             appName = "System Launcher",
-            description = "Home screen launcher speed and animation modifications",
+            description = "Home screen launcher gesture and animation modifications",
             primaryColorHex = 0xFF10B981, // Emerald Green
             hooks = listOf(
                 HookItem(
                     id = "LauncherAnimationHook",
-                    name = "Launcher Animation Tweaks",
-                    description = "Adjusts home screen transition and app launch animation speeds",
-                    targetClass = "com.android.launcher.LauncherAnimation"
+                    name = "Bottom Gesture Height Override",
+                    description = "Adjusts bottom swipe gesture height in System Launcher. 0 = Default (No Mod).",
+                    targetClass = "com.android.launcher.navigation.NavigationController",
+                    supportsConfig = true
                 )
             )
         ),

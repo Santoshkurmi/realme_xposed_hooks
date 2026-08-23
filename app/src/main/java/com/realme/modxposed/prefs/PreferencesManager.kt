@@ -15,6 +15,7 @@ object PreferencesManager {
     const val KEY_BATTERY_LOGGER_FLUSH_INTERVAL = "battery_decimal_logger_flush_interval"
     const val KEY_BATTERY_CPU_INTERVAL = "battery_decimal_cpu_interval"
     const val KEY_BATTERY_POLL_INTERVAL = "battery_decimal_poll_interval"
+    const val KEY_LAUNCHER_GESTURE_HEIGHT = "launcher_gesture_height"
 
     fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -51,6 +52,15 @@ object PreferencesManager {
 
     fun setHookEnabled(context: Context, hookId: String, enabled: Boolean) {
         getPrefs(context).edit().putBoolean("hook_enabled_$hookId", enabled).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getLauncherGestureHeight(context: Context): Int {
+        return getPrefs(context).getInt(KEY_LAUNCHER_GESTURE_HEIGHT, 0)
+    }
+
+    fun setLauncherGestureHeight(context: Context, heightDp: Int) {
+        getPrefs(context).edit().putInt(KEY_LAUNCHER_GESTURE_HEIGHT, heightDp).commit()
         makeWorldReadable(context)
     }
 

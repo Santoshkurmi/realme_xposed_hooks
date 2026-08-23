@@ -572,15 +572,51 @@ fun HookItemCard(hook: HookItem, isParentAppEnabled: Boolean) {
                 )
             }
 
-            // Custom Feature Config Panel (Specialized for HookRealBatteryDecimal)
+            // Custom Feature Config Panel
             if (hook.supportsConfig && isHookEnabled && isParentAppEnabled) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                RealBatteryDecimalConfigPanel(context = context)
+                if (hook.id == "HookRealBatteryDecimal") {
+                    RealBatteryDecimalConfigPanel(context = context)
+                } else if (hook.id == "LauncherAnimationHook") {
+                    LauncherGestureConfigPanel(context = context)
+                }
             }
         }
+    }
+}
+
+@Composable
+fun LauncherGestureConfigPanel(context: Context) {
+    var heightDp by remember {
+        mutableStateOf(PreferencesManager.getLauncherGestureHeight(context).toFloat())
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Bottom Gesture Height Slider",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Text(
+            text = if (heightDp.toInt() == 0) "0 dp - Default Stock Height (No Mod)" else "${heightDp.toInt()} dp - Custom Height Override",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Slider(
+            value = heightDp,
+            onValueChange = { newValue ->
+                heightDp = newValue
+                PreferencesManager.setLauncherGestureHeight(context, newValue.toInt())
+            },
+            valueRange = 0f..100f,
+            steps = 100
+        )
     }
 }
 
