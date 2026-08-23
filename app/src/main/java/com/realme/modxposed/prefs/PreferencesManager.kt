@@ -25,6 +25,7 @@ object PreferencesManager {
             val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
             if (prefsDir.exists()) {
                 prefsDir.setReadable(true, false)
+                prefsDir.setWritable(true, false)
                 prefsDir.setExecutable(true, false)
                 val prefsFile = File(prefsDir, "$PREF_NAME.xml")
                 if (prefsFile.exists()) {

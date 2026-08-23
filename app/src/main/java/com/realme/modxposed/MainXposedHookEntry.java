@@ -3,6 +3,7 @@ package com.realme.modxposed;
 import com.realme.modxposed.hooks.GestureNavigationView;
 import com.realme.modxposed.hooks.HamroCsit;
 import com.realme.modxposed.hooks.HookClock;
+import com.realme.modxposed.hooks.HookOplusVRR;
 import com.realme.modxposed.hooks.HookRealBatteryDecimal;
 import com.realme.modxposed.hooks.LauncherAnimationHook;
 import com.realme.modxposed.hooks.Siddha;
@@ -53,6 +54,10 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
         }
 
         switch (pkgName) {
+            case "android":
+                new HookOplusVRR().init(lpparam);
+                break;
+
             case ClassesConstants.SystemUi:
                 if (isHookEnabled("GestureNavigationView")) {
                     new GestureNavigationView().init(lpparam);

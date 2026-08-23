@@ -462,6 +462,9 @@ fun AppDetailScreen(app: TargetApp) {
     var isAppEnabled by remember(app.packageName) {
         mutableStateOf(PreferencesManager.isAppEnabled(context, app.packageName))
     }
+    LaunchedEffect(app.packageName) {
+        isAppEnabled = PreferencesManager.isAppEnabled(context, app.packageName)
+    }
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -528,6 +531,9 @@ fun HookItemCard(hook: HookItem, isParentAppEnabled: Boolean) {
     val context = LocalContext.current
     var isHookEnabled by remember(hook.id) {
         mutableStateOf(PreferencesManager.isHookEnabled(context, hook.id))
+    }
+    LaunchedEffect(hook.id) {
+        isHookEnabled = PreferencesManager.isHookEnabled(context, hook.id)
     }
 
     Card(

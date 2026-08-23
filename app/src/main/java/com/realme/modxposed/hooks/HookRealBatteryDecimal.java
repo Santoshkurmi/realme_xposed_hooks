@@ -95,10 +95,10 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
         }
     }
 
-    // Pre-allocated Power Watts Strings Table (0..2000 -> 0.00 to 20.00)
-    private static final String[] POWER_WATTS_STRINGS = new String[2001];
+    // Pre-allocated Power Watts Strings Table (0..9999 -> 0.00 to 99.99)
+    private static final String[] POWER_WATTS_STRINGS = new String[10000];
     static {
-        for (int i = 0; i <= 2000; i++) {
+        for (int i = 0; i < 10000; i++) {
             int integerPart = i / 100;
             int fractionPart = i % 100;
             POWER_WATTS_STRINGS[i] = String.format(Locale.US, "%d.%02d", integerPart, fractionPart);
@@ -722,7 +722,7 @@ public class HookRealBatteryDecimal implements IXposedHookLoadPackage {
 
             if (rawVoltage > 0) {
                 int powerHundredths = (int) Math.round((rawVoltage * (double) Math.abs(currentMa)) / 10000.0);
-                powerHundredths = Math.min(2000, Math.max(0, powerHundredths));
+                powerHundredths = Math.min(9999, Math.max(0, powerHundredths));
                 cachedPowerWattsString = POWER_WATTS_STRINGS[powerHundredths];
             } else {
                 cachedPowerWattsString = null;
