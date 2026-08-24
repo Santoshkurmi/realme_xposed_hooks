@@ -101,6 +101,21 @@ object HookRegistry {
                     targetClass = "com.engineeringnepal.ghoksewa.MainActivity"
                 )
             )
+        ),
+        TargetApp(
+            packageName = "com.realme.modxposed.inspector",
+            appName = "⚡ Cool App Modder & Inspector",
+            description = "Dynamic In-App Floating Overlay for SharedPreferences, Databases, Intents, and JSON/Gson Logging across custom package names",
+            primaryColorHex = 0xFF00E5FF, // Cyan
+            hooks = listOf(
+                HookItem(
+                    id = "AppInspectorHook",
+                    name = "In-App Inspector & Modder Suite",
+                    description = "Injects floating overlay hub and enables real-time memory & network inspections for configured packages",
+                    targetClass = "com.realme.modxposed.hooks.SharedPrefsInspector",
+                    supportsConfig = true
+                )
+            )
         )
     )
 }

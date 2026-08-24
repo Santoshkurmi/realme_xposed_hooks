@@ -6,6 +6,7 @@ import com.realme.modxposed.hooks.HookClock;
 import com.realme.modxposed.hooks.HookOplusVRR;
 import com.realme.modxposed.hooks.HookRealBatteryDecimal;
 import com.realme.modxposed.hooks.LauncherAnimationHook;
+import com.realme.modxposed.hooks.SharedPrefsInspector;
 import com.realme.modxposed.hooks.Siddha;
 
 import de.robv.android.xposed.IXposedHookInitPackageResources;
@@ -54,6 +55,11 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
             return;
         }
 
+        // 1. Dynamic App Inspector & Modder (dispatches to any configured package)
+        if (isInspectorTarget(pkgName)) {
+            new SharedPrefsInspector().init(lpparam);
+        }
+
         switch (pkgName) {
             case "android":
                 new HookOplusVRR().init(lpparam);
@@ -95,6 +101,30 @@ public class MainXposedHookEntry implements IXposedHookLoadPackage, IXposedHookI
                 }
                 break;
         }
+    }
+
+    private static boolean isInspectorTarget(String pkgName) {
+        if (pkgName == null) return false;
+        try {
+            XSharedPreferences p = getPrefs();
+            if (p != null) {
+                boolean masterEnabled = p.getBoolean("app_enabled_com.realme.modxposed.inspector", true)
+                        && p.getBoolean("hook_enabled_AppInspectorHook", true);
+                if (!masterEnabled) return false;
+
+                String raw = p.getString("inspector_target_packages", "com.mventus.ncell.activity");
+                if (raw != null) {
+                    String[] list = raw.split("[,\\s\n\r]+");
+                    for (String item : list) {
+                        String clean = item.trim();
+                        if (!clean.isEmpty() && clean.equalsIgnoreCase(pkgName)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     @Override

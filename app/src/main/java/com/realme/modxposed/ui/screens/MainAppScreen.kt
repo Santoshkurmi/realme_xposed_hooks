@@ -582,6 +582,8 @@ fun HookItemCard(hook: HookItem, isParentAppEnabled: Boolean) {
                     RealBatteryDecimalConfigPanel(context = context)
                 } else if (hook.id == "LauncherAnimationHook") {
                     LauncherGestureConfigPanel(context = context)
+                } else if (hook.id == "AppInspectorHook") {
+                    AppInspectorConfigPanel(context = context)
                 }
             }
         }
@@ -878,6 +880,196 @@ fun RealBatteryDecimalConfigPanel(context: Context) {
                 },
                 valueRange = 1000f..10000f,
                 steps = 8
+            )
+        }
+    }
+}
+
+@Composable
+fun AppInspectorConfigPanel(context: Context) {
+    var targetPackages by remember {
+        mutableStateOf(PreferencesManager.getInspectorTargetPackages(context))
+    }
+    var hookSharedPrefs by remember {
+        mutableStateOf(PreferencesManager.getInspectorHookSharedPrefs(context))
+    }
+    var hookDatabase by remember {
+        mutableStateOf(PreferencesManager.getInspectorHookDatabase(context))
+    }
+    var hookIntents by remember {
+        mutableStateOf(PreferencesManager.getInspectorHookIntents(context))
+    }
+    var hookJson by remember {
+        mutableStateOf(PreferencesManager.getInspectorHookJson(context))
+    }
+    var hookOverlay by remember {
+        mutableStateOf(PreferencesManager.getInspectorHookOverlay(context))
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            text = "Target Package Configuration",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        OutlinedTextField(
+            value = targetPackages,
+            onValueChange = {
+                targetPackages = it
+                PreferencesManager.setInspectorTargetPackages(context, it)
+            },
+            label = { Text("Target Application Packages") },
+            placeholder = { Text("com.mventus.ncell.activity, com.example.app") },
+            supportingText = {
+                Text(
+                    text = "Comma or newline separated list of package names to inject the inspector into.",
+                    fontSize = 11.sp
+                )
+            },
+            minLines = 2,
+            maxLines = 4,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+
+        Text(
+            text = "Modular Engine Toggles",
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        // SharedPreferences Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "📁 SharedPreferences Explorer",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "Auto-scans and captures XML preferences & keys",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = hookSharedPrefs,
+                onCheckedChange = {
+                    hookSharedPrefs = it
+                    PreferencesManager.setInspectorHookSharedPrefs(context, it)
+                }
+            )
+        }
+
+        // Database Explorer Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "🗄️ SQLite / Room DB Explorer",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "Discovers databases, tables, and inspects rows",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = hookDatabase,
+                onCheckedChange = {
+                    hookDatabase = it
+                    PreferencesManager.setInspectorHookDatabase(context, it)
+                }
+            )
+        }
+
+        // Intent & Broadcast Interceptor Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "📡 Live Intent & Broadcast Interceptor",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "Captures startActivity, sendBroadcast, and extras",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = hookIntents,
+                onCheckedChange = {
+                    hookIntents = it
+                    PreferencesManager.setInspectorHookIntents(context, it)
+                }
+            )
+        }
+
+        // Dynamic JSON / Gson Logger Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "📦 Dynamic JSON / Gson Logger",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "Logs Gson and JSONObject serialization in-flight",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = hookJson,
+                onCheckedChange = {
+                    hookJson = it
+                    PreferencesManager.setInspectorHookJson(context, it)
+                }
+            )
+        }
+
+        // Floating Overlay UI Toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "⚡ In-App Floating Overlay UI",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "Shows the draggable DEV bubble inside the target app",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = hookOverlay,
+                onCheckedChange = {
+                    hookOverlay = it
+                    PreferencesManager.setInspectorHookOverlay(context, it)
+                }
             )
         }
     }

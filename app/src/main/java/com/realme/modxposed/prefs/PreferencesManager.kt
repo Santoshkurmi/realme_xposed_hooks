@@ -135,4 +135,66 @@ object PreferencesManager {
         getPrefs(context).edit().putBoolean(KEY_BATTERY_SMOOTH_ESTIMATE, smooth).commit()
         makeWorldReadable(context)
     }
+
+    // --- App Inspector & Modder Preferences ---
+    const val KEY_INSPECTOR_TARGET_PACKAGES = "inspector_target_packages"
+    const val KEY_INSPECTOR_HOOK_SHARED_PREFS = "inspector_hook_shared_prefs"
+    const val KEY_INSPECTOR_HOOK_DATABASE = "inspector_hook_database"
+    const val KEY_INSPECTOR_HOOK_INTENTS = "inspector_hook_intents"
+    const val KEY_INSPECTOR_HOOK_JSON = "inspector_hook_json"
+    const val KEY_INSPECTOR_HOOK_OVERLAY = "inspector_hook_overlay"
+
+    fun getInspectorTargetPackages(context: Context): String {
+        return getPrefs(context).getString(KEY_INSPECTOR_TARGET_PACKAGES, "com.mventus.ncell.activity") ?: "com.mventus.ncell.activity"
+    }
+
+    fun setInspectorTargetPackages(context: Context, packages: String) {
+        getPrefs(context).edit().putString(KEY_INSPECTOR_TARGET_PACKAGES, packages).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getInspectorHookSharedPrefs(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_INSPECTOR_HOOK_SHARED_PREFS, true)
+    }
+
+    fun setInspectorHookSharedPrefs(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_INSPECTOR_HOOK_SHARED_PREFS, enabled).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getInspectorHookDatabase(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_INSPECTOR_HOOK_DATABASE, true)
+    }
+
+    fun setInspectorHookDatabase(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_INSPECTOR_HOOK_DATABASE, enabled).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getInspectorHookIntents(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_INSPECTOR_HOOK_INTENTS, true)
+    }
+
+    fun setInspectorHookIntents(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_INSPECTOR_HOOK_INTENTS, enabled).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getInspectorHookJson(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_INSPECTOR_HOOK_JSON, true)
+    }
+
+    fun setInspectorHookJson(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_INSPECTOR_HOOK_JSON, enabled).commit()
+        makeWorldReadable(context)
+    }
+
+    fun getInspectorHookOverlay(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_INSPECTOR_HOOK_OVERLAY, true)
+    }
+
+    fun setInspectorHookOverlay(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_INSPECTOR_HOOK_OVERLAY, enabled).commit()
+        makeWorldReadable(context)
+    }
 }
