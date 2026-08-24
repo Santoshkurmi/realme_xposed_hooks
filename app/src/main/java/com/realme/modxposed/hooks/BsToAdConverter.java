@@ -1,6 +1,7 @@
 package com.realme.modxposed.hooks;
 
-import java.util.Calendar;
+import java.time.LocalDate;
+import java.time.format.TextStyle;
 import java.util.Locale;
 
 public class BsToAdConverter {
@@ -112,7 +113,7 @@ public class BsToAdConverter {
 
     // Reference Anchor: 1 Baisakh 2000 BS = April 14, 1943 AD
     private static final int START_BS_YEAR = 2000;
-    private static final long ANCHOR_TIME_MS;
+    private static final long ANCHOR_EPOCH_DAY = LocalDate.of(1943, 4, 14).toEpochDay();
 
     // Pre-computed Cumulative Month Days table for instantaneous O(1) runtime lookup
     private static final int CUMULATIVE_MONTHS = BS_MONTH_DAYS.length * 12;
@@ -121,11 +122,6 @@ public class BsToAdConverter {
     private static final int[] MONTH_BS_INDEX = new int[CUMULATIVE_MONTHS];
 
     static {
-        Calendar anchor = Calendar.getInstance();
-        anchor.set(1943, Calendar.APRIL, 14, 0, 0, 0);
-        anchor.set(Calendar.MILLISECOND, 0);
-        ANCHOR_TIME_MS = anchor.getTimeInMillis();
-
         long accumDays = 0;
         int idx = 0;
         for (int y = 0; y < BS_MONTH_DAYS.length; y++) {
@@ -156,26 +152,23 @@ public class BsToAdConverter {
     private String cacheDate = null;
 
     public String getMonth() {
-        Calendar today = Calendar.getInstance();
-        int curYear = today.get(Calendar.YEAR);
-        int curMonth = today.get(Calendar.MONTH);
-        int curDay = today.get(Calendar.DAY_OF_MONTH);
+        LocalDate today = LocalDate.now();
+        int curYear = today.getYear();
+        int curMonth = today.getMonthValue();
+        int curDay = today.getDayOfMonth();
 
         if (curDay == cacheDay && curYear == cacheYear && curMonth == cacheMonth && cacheDate != null) {
             return cacheDate;
         }
 
-        String englishDate = today.getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.ENGLISH) + " " + curDay;
-        String dayOfWeek = today.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.SHORT, Locale.ENGLISH);
+        String englishDate = today.getMonth().getDisplayName(TextStyle.SHORT, Locale.ENGLISH) + " " + curDay;
+        String dayOfWeek = today.getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.ENGLISH);
 
-        long todayMs = today.getTimeInMillis();
-        if (todayMs < ANCHOR_TIME_MS) {
+        long daysElapsed = today.toEpochDay() - ANCHOR_EPOCH_DAY;
+        if (daysElapsed < 0) {
             cacheDate = dayOfWeek + ", " + englishDate;
             return cacheDate;
         }
-
-        // Calculate days elapsed from 1 Baisakh 2000 BS (April 13, 1943)
-        long daysElapsed = (todayMs - ANCHOR_TIME_MS) / (24 * 60 * 60 * 1000L);
 
         // Instant pre-computed cumulative lookup
         int m = 0;
